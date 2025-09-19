@@ -172,7 +172,7 @@ class ESGReporterApp:
     
     def _navigate_to(self, page_name: str) -> None:
         """Navigate to a specific page."""
-        ui.open(f'/{page_name.replace("_", "-")}')
+        ui.navigate.to(f'/{page_name.replace("_", "-")}')
     
     def _on_company_change(self, e) -> None:
         """Handle company selection change."""
