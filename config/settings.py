@@ -32,7 +32,7 @@ class DatabaseSettings(BaseSettings):
     
     class Config:
         env_file = ".env"
-
+        extra = "ignore"
 
 class OpenAISettings(BaseSettings):
     """OpenAI API configuration."""
@@ -51,6 +51,7 @@ class OpenAISettings(BaseSettings):
     
     class Config:
         env_file = ".env"
+        extra = "ignore"
 
 
 class AppSettings(BaseSettings):
@@ -80,7 +81,7 @@ class AppSettings(BaseSettings):
     
     class Config:
         env_file = ".env"
-
+        extra = "ignore"
 
 class Settings:
     """Combined settings class."""
