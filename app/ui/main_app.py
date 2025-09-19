@@ -61,7 +61,7 @@ class ESGReporterApp:
         ui.run_with.fast_reload = settings.app.DEBUG
         
         # Setup main layout
-        self._setup_layout()
+        # self._setup_layout()
         
         # Setup routing
         self._setup_routing()
@@ -122,6 +122,7 @@ class ESGReporterApp:
         """Setup page routing."""
         @ui.page('/')
         async def index():
+            self._setup_layout()
             await self._load_page('dashboard')
         
         @ui.page('/dashboard')
