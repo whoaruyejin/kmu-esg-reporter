@@ -9,6 +9,6 @@ app_dir = Path(__file__).parent
 sys.path.insert(0, str(app_dir))
 
 # Import and run the application
-if __name__ == "__main__":
+if __name__ in {"__main__", "__mp_main__"}:  
     from app.ui.main_app import create_app
     create_app()
