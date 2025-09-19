@@ -127,22 +127,27 @@ class ESGReporterApp:
         
         @ui.page('/dashboard')
         async def dashboard():
+            self._setup_layout()
             await self._load_page('dashboard')
         
         @ui.page('/data-input')
         async def data_input():
+            self._setup_layout()
             await self._load_page('data_input')
         
         @ui.page('/visualization')
         async def visualization():
+            self._setup_layout()
             await self._load_page('visualization')
         
         @ui.page('/chatbot')
         async def chatbot():
+            self._setup_layout()
             await self._load_page('chatbot')
         
         @ui.page('/companies')
         async def companies():
+            self._setup_layout()
             await self._load_page('company_management')
     
     async def _load_page(self, page_name: str) -> None:
