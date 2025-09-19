@@ -112,8 +112,8 @@ class ESGReporterApp:
         ]
         
         for item in nav_items:
-            with ui.item(clickable=True, on_click=lambda page=item['page']: self._navigate_to(page)):
-                with ui.item_section(avatar=True):
+            with ui.item(on_click=lambda page=item['page']: self._navigate_to(page)):
+                with ui.item_section():
                     ui.icon(item['icon'])
                 with ui.item_section():
                     ui.item_label(item['label'])
