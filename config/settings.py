@@ -91,9 +91,9 @@ class Settings:
         self.database = DatabaseSettings()
         
         # Only load OpenAI settings if API key is available
-        if os.getenv("OPENAI_API_KEY"):
-            self.openai = OpenAISettings()
-        else:
+        try:
+            self.openai = OpenAISettings()   # 여기서 .env 읽힘
+        except Exception:
             self.openai = None
 
 
