@@ -19,6 +19,7 @@ from typing import Annotated
 from sqlalchemy.orm import Session
 from app.core.database.models import ChatSession, Company, ESGData, Report
 from app.data.processors.data_processor import ESGDataProcessor
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +49,12 @@ class ESGReportChatbot:
         self.log_element = log_element
         self.data_processor = ESGDataProcessor(db)
         self.max_iterations = 3
+        api_key = settings.openai.OPENAI_API_KEY if settings.openai else None
         
         # OpenAI LLM 설정
         self.llm = ChatOpenAI(
             model="gpt-4o-mini",
-            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            openai_api_key=api_key,
             streaming=True,
             temperature=0.3
         )
