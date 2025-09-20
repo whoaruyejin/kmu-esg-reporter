@@ -3,7 +3,8 @@
 from .dashboard import DashboardPage
 from .data_input import DataInputPage
 from .visualization import VisualizationPage
-from .chatbot import ChatbotPage
+# from .chatbot import ChatbotPage
+from .chatbot_langgraph import ChatbotPage
 from .company_management import CompanyManagementPage
 
 __all__ = [
