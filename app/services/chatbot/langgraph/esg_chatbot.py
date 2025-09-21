@@ -187,7 +187,7 @@ class ESGReportChatbot:
             }
         )
         
-        workflow_builder.add_edge("handle_no_data", "generate_response")
+        workflow_builder.add_edge("handle_no_data", "save_conversation")
         workflow_builder.add_edge("execute_esg_tools", "generate_response")
         workflow_builder.add_edge("generate_response", "save_conversation")
         workflow_builder.add_edge("save_conversation", END)
