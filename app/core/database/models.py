@@ -1,10 +1,8 @@
 """Database models for ESG Reporter."""
 
-# from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, JSON
-
-# 수정
-from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, JSON, Numeric
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, JSON, Date,JSON, Numeric
 from decimal import Decimal  # Python Decimal 타입
+
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .base import Base
@@ -88,52 +86,6 @@ class ESGData:
     """Dummy ESGData for backward compatibility."""
     pass
 
-
-class CmpInfo(Base):
-    """회사 기본 정보 테이블 - CMP_INFO"""
-    
-    __tablename__ = "cmp_info"
-    
-    cmp_num = Column(String(10), primary_key=True)
-    cmp_nm = Column(String(100), nullable=False)
-    cmp_industry = Column(String(20))
-    cmp_sector = Column(String(20))
-    cmp_addr = Column(String(200))
-    cmp_extemp = Column(Integer)
-    cmp_ethics_yn = Column(String(1))
-    cmp_comp_yn = Column(String(1))
-    
-    # Relationships
-    reports = relationship("Report", back_populates="company")
-    chat_sessions = relationship("ChatSession", back_populates="company")
-    data_import_logs = relationship("DataImportLog", back_populates="company")
-
-class EmpInfo(Base):
-    """직원 기본 정보 테이블 - EMP_INFO"""
-    
-    __tablename__ = "emp_info"
-    
-    emp_id = Column(Integer, primary_key=True)
-    emp_nm = Column(String(10), nullable=False)
-    emp_birth = Column(String(8))
-    emp_tel = Column(String(20))
-    emp_email = Column(String(20))
-    emp_join = Column(String(8))
-    emp_acident_cnt = Column(Integer)
-    emp_board_yn = Column(String(1))
-    emp_gender = Column(String(1))
-
-class Env(Base):
-    """환경현황 테이블 - ENV"""
-    
-    __tablename__ = "env"
-    
-    year = Column(Integer, primary_key=True)
-    energy_use = Column(Float)
-    green_use = Column(Float)
-    renewable_yn = Column(String(1))
-    renewable_ratio = Column(Numeric(5,3))
-
 # 기존 테이블들 - cmp_num FK로 수정
 class Report(Base):
     """Generated ESG reports."""
@@ -176,6 +128,63 @@ class ChatSession(Base):
     
     # Relationships
     company = relationship("CmpInfo", back_populates="chat_sessions")
+
+class CmpInfo(Base):
+    """Company information model for company management."""
+    
+    __tablename__ = "cmp_info"
+    
+    cmp_num = Column(String(10), primary_key=True)  # 사업장번호 (복합 PK 1)
+    cmp_branch = Column(String(10), primary_key=True)  # 지점 (복합 PK 2)
+    cmp_nm = Column(String(100), nullable=False)  # 회사명
+    cmp_industry = Column(String(20))  # 업종
+    cmp_sector = Column(String(20))  # 산업
+    cmp_addr = Column(String(200))  # 주소
+    cmp_extemp = Column(Integer)  # 사외 이사회 수
+    cmp_ethics_yn = Column(String(1))  # 윤리경영 여부
+    cmp_comp_yn = Column(String(1))  # 컴플라이언스 정책 여부
+    
+    # Relationships
+    reports = relationship("Report", back_populates="company")
+    chat_sessions = relationship("ChatSession", back_populates="company")
+    data_import_logs = relationship("DataImportLog", back_populates="company")
+
+
+class EmpInfo(Base):
+    """Employee model for HR management."""
+    
+    __tablename__ = "emp_info"
+    
+    EMP_ID = Column(Integer, primary_key=True, index=True)  # 사번 (Primary Key)
+    EMP_NM = Column(String(10), nullable=False)  # 이름
+    EMP_BIRTH = Column(String(8))  # 생년월일 (YYYYMMDD)
+    EMP_TEL = Column(String(20))  # 전화번호
+    EMP_EMAIL = Column(String(20))  # 이메일
+    EMP_JOIN = Column(String(8))  # 입사년도 (YYYYMMDD)
+    EMP_ACIDENT_CNT = Column(Integer, default=0)  # 산재발생횟수
+    EMP_BOARD_YN = Column(String(1), default='N')  # 이사회여부
+    EMP_GENDER = Column(String(1))  # 성별 (1:남자, 2:여자)
+    EMP_ENDYN = Column(String(1), default='Y')  # 재직여부 (Y:재직, N:퇴직)
+    EMP_COMP = Column(String(10))  # 사업장
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Env(Base):
+    """환경현황 테이블"""
+    
+    __tablename__ = "env"
+    
+    year = Column(Integer, primary_key=True, index=True)  # 년도 (PK, YYYY)
+    energy_use = Column(Float)  # 에너지 사용량
+    green_use = Column(Float)  # 온실가스 배출량
+    renewable_yn = Column(String(1))  # 재생에너지 사용여부 (Y/N)
+    renewable_ratio = Column(Float)  # 재생에너지 비율
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 
 class DataImportLog(Base):
     """Log for data import operations."""

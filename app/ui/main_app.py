@@ -14,9 +14,11 @@ try:
     from app.ui.pages import (
         DashboardPage, 
         DataInputPage, 
-        VisualizationPage, 
+        # VisualizationPage, 
         ChatbotPage,
-        CompanyManagementPage
+        CompanyManagementPage,
+        HRPage,
+        EnvironmentPage
     )
 except ImportError as e:
     logging.error(f"Error importing pages: {e}")
@@ -27,9 +29,11 @@ except ImportError as e:
     
     DashboardPage = DummyPage
     DataInputPage = DummyPage
-    VisualizationPage = DummyPage
+    # VisualizationPage = DummyPage
     ChatbotPage = DummyPage
     CompanyManagementPage = DummyPage
+    HRPage = DummyPage
+    EnvironmentPage = DummyPage
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +52,11 @@ class ESGReporterApp:
         self.pages = {
             'dashboard': DashboardPage(),
             'data_input': DataInputPage(),
-            'visualization': VisualizationPage(),
+            # 'visualization': VisualizationPage(),
             'chatbot': ChatbotPage(),
-            'company_management': CompanyManagementPage()
+            'company_management': CompanyManagementPage(),
+            'hr': HRPage(),
+            'environment': EnvironmentPage()
         }
     
     def setup_app(self) -> None:
@@ -70,21 +76,21 @@ class ESGReporterApp:
                 ui.icon('eco', size='2rem').classes('text-green')
                 ui.label('ESG Reporter').classes('text-h5 font-weight-bold')
             
-            with ui.row().classes('items-center gap-4'):
-                # Company selector
-                self.company_select = ui.select(
-                    options={},
-                    label='Select Company',
-                    on_change=self._on_company_change
-                ).classes('w-48')
+            # with ui.row().classes('items-center gap-4'):
+            #     # Company selector
+            #     self.company_select = ui.select(
+            #         options={},
+            #         label='Select Company',
+            #         on_change=self._on_company_change
+            #     ).classes('w-48')
                 
-                # User menu
-                with ui.button(icon='account_circle').props('flat round'):
-                    with ui.menu():
-                        ui.menu_item('Profile', lambda: ui.notify('Profile clicked'))
-                        ui.menu_item('Settings', lambda: ui.notify('Settings clicked'))
-                        ui.separator()
-                        ui.menu_item('Logout', lambda: ui.notify('Logout clicked'))
+            #     # User menu
+            #     with ui.button(icon='account_circle').props('flat round'):
+            #         with ui.menu():
+            #             ui.menu_item('Profile', lambda: ui.notify('Profile clicked'))
+            #             ui.menu_item('Settings', lambda: ui.notify('Settings clicked'))
+            #             ui.separator()
+            #             ui.menu_item('Logout', lambda: ui.notify('Logout clicked'))
         
         # Navigation drawer
         with ui.left_drawer().classes('bg-blue-grey-1') as self.drawer:
@@ -99,20 +105,38 @@ class ESGReporterApp:
     
     def _setup_navigation(self) -> None:
         """Setup navigation menu."""
-        nav_items = [
-            {'icon': 'dashboard', 'label': 'Dashboard', 'page': 'dashboard'},
-            {'icon': 'input', 'label': 'Data Input', 'page': 'data_input'},
-            {'icon': 'analytics', 'label': 'Visualization', 'page': 'visualization'},
-            {'icon': 'chat', 'label': 'AI Chatbot', 'page': 'chatbot'},
-            {'icon': 'business', 'label': 'Companies', 'page': 'company_management'},
-        ]
-        
-        for item in nav_items:
-            with ui.item(on_click=lambda page=item['page']: self._navigate_to(page)):
-                with ui.item_section():
-                    ui.icon(item['icon'])
-                with ui.item_section():
-                    ui.item_label(item['label'])
+        # Dashboard
+        with ui.item(on_click=lambda: self._navigate_to('dashboard')):
+            with ui.item_section():
+                ui.icon('dashboard')
+            with ui.item_section():
+                ui.item_label('Dashboard')
+
+        # ERP 확장 메뉴 (회사관리, HR, 환경관리)
+        with ui.expansion('ERP', icon='input', value=True).classes('q-pa-none') as erp_expansion:
+            with ui.list().classes('q-pa-none'):
+                with ui.item(on_click=lambda: self._navigate_to('companies')):
+                    with ui.item_section():
+                        ui.icon('business')
+                    with ui.item_section():
+                        ui.item_label('회사관리').classes('whitespace-nowrap')
+                with ui.item(on_click=lambda: self._navigate_to('hr')):
+                    with ui.item_section():
+                        ui.icon('people')
+                    with ui.item_section():
+                        ui.item_label('HR').classes('whitespace-nowrap')
+                with ui.item(on_click=lambda: self._navigate_to('environment')):
+                    with ui.item_section():
+                        ui.icon('eco')
+                    with ui.item_section():
+                        ui.item_label('환경관리').classes('whitespace-nowrap')
+
+        # AI Chatbot
+        with ui.item(on_click=lambda: self._navigate_to('chatbot')):
+            with ui.item_section():
+                ui.icon('chat')
+            with ui.item_section():
+                ui.item_label('AI Chatbot')
     
     def _setup_routing(self) -> None:
         """Setup page routing."""
@@ -145,6 +169,16 @@ class ESGReporterApp:
         async def companies():
             self._setup_layout()
             await self._load_page('company_management')
+        
+        @ui.page('/hr')
+        async def hr():
+            self._setup_layout()
+            await self._load_page('hr')
+        
+        @ui.page('/environment')
+        async def environment():
+            self._setup_layout()
+            await self._load_page('environment')
     
     async def _load_page(self, page_name: str) -> None:
         """Load a specific page."""
@@ -178,7 +212,18 @@ class ESGReporterApp:
     
     def _navigate_to(self, page_name: str) -> None:
         """Navigate to a specific page."""
-        ui.navigate.to(f'/{page_name.replace("_", "-")}')
+        # 특별한 라우팅 매핑
+        route_mapping = {
+            'companies': '/companies',
+            'company_management': '/companies',
+            'hr': '/hr',
+            'environment': '/environment',
+            'chatbot': '/chatbot',
+            'dashboard': '/dashboard'
+        }
+        
+        route = route_mapping.get(page_name, f'/{page_name.replace("_", "-")}')
+        ui.navigate.to(route)
     
     def _on_company_change(self, e) -> None:
         """Handle company selection change."""
