@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timedelta
 
 from app.core.database.models import ESGData, Company
+from app.core.database.models import CmpInfo, EmpInfo, Env, ChatSession, Report, DataImportLog  # 새로운 모델 import
 
 
 """
@@ -92,271 +93,222 @@ class ESGDataProcessor:
     
     def __init__(self, db: Session):
         self.db = db
-    
-    def get_company_data(self, 
-                        company_id: int, 
-                        categories: Optional[List[str]] = None,
-                        year: Optional[int] = None,
-                        start_date: Optional[datetime] = None,
-                        end_date: Optional[datetime] = None) -> pd.DataFrame:
-        """Get ESG data for a company with optional filters."""
+
+    def get_company_info(self, cmp_num: str) -> Optional[Dict[str, Any]]:
+        """회사 기본 정보 조회"""
+        company = self.db.query(CmpInfo).filter(CmpInfo.cmp_num == cmp_num).first()
+        if not company:
+            return None
+            
+        return {
+            'cmp_num': company.cmp_num,
+            'cmp_nm': company.cmp_nm,
+            'cmp_industry': company.cmp_industry,
+            'cmp_sector': company.cmp_sector,
+            'cmp_addr': company.cmp_addr,
+            'cmp_extemp': company.cmp_extemp,
+            'cmp_ethics_yn': company.cmp_ethics_yn,
+            'cmp_comp_yn': company.cmp_comp_yn
+        }
+
+    def get_employee_data(self) -> pd.DataFrame:
+        """직원 데이터 조회"""
+        query = self.db.query(EmpInfo)
         
-        query = self.db.query(ESGData).filter(ESGData.company_id == company_id)
-        
-        # Apply filters
-        if categories:
-            query = query.filter(ESGData.category.in_(categories))
-        
-        if year:
-            query = query.filter(ESGData.reporting_year == year)
-        
-        if start_date:
-            query = query.filter(ESGData.period_start >= start_date)
-        
-        if end_date:
-            query = query.filter(ESGData.period_end <= end_date)
-        
-        # Convert to DataFrame
         data = []
         for record in query.all():
             data.append({
-                'id': record.id,
-                'category': record.category,
-                'subcategory': record.subcategory,
-                'metric_name': record.metric_name,
-                'metric_code': record.metric_code,
-                'value': record.value,
-                'unit': record.unit,
-                'text_value': record.text_value,
-                'data_source': record.data_source,
-                'quality_score': record.quality_score,
-                'period_start': record.period_start,
-                'period_end': record.period_end,
-                'reporting_year': record.reporting_year,
-                'created_at': record.created_at,
-                'notes': record.notes
+                'emp_id': record.emp_id,
+                'emp_nm': record.emp_nm,
+                'emp_birth': record.emp_birth,
+                'emp_tel': record.emp_tel,
+                'emp_email': record.emp_email,
+                'emp_join': record.emp_join,
+                'emp_acident_cnt': record.emp_acident_cnt,
+                'emp_board_yn': record.emp_board_yn,
+                'emp_gender': record.emp_gender
+            })
+            
+        return pd.DataFrame(data)
+
+    def get_environmental_data(self, start_year: Optional[int] = None, end_year: Optional[int] = None) -> pd.DataFrame:
+        """환경 데이터 조회"""
+        query = self.db.query(Env)
+        
+        if start_year:
+            query = query.filter(Env.year >= start_year)
+        if end_year:
+            query = query.filter(Env.year <= end_year)
+            
+        query = query.order_by(Env.year)
+        
+        data = []
+        for record in query.all():
+            data.append({
+                'year': record.year,
+                'energy_use': record.energy_use,
+                'green_use': record.green_use,
+                'renewable_yn': record.renewable_yn,
+                'renewable_ratio': float(record.renewable_ratio) if record.renewable_ratio else None
+            })
+            
+        return pd.DataFrame(data)
+
+    def calculate_social_metrics(self, emp_df: pd.DataFrame) -> Dict[str, Any]:
+        """사회(Social) 지표 계산"""
+        if emp_df.empty:
+            return {}
+            
+        metrics = {}
+        
+        # 성별 다양성
+        gender_dist = emp_df['emp_gender'].value_counts()
+        total_employees = len(emp_df)
+        
+        metrics['diversity'] = {
+            'total_employees': total_employees,
+            'male_count': int(gender_dist.get('1', 0)),
+            'female_count': int(gender_dist.get('2', 0)),
+            'female_ratio': gender_dist.get('2', 0) / total_employees if total_employees > 0 else 0
+        }
+        
+        # 이사회 구성
+        board_members = emp_df[emp_df['emp_board_yn'] == 'Y']
+        board_gender_dist = board_members['emp_gender'].value_counts()
+        
+        metrics['board_composition'] = {
+            'total_board_members': len(board_members),
+            'male_board_members': int(board_gender_dist.get('1', 0)),
+            'female_board_members': int(board_gender_dist.get('2', 0)),
+            'female_board_ratio': board_gender_dist.get('2', 0) / len(board_members) if len(board_members) > 0 else 0
+        }
+        
+        # 안전 지표
+        total_accidents = emp_df['emp_acident_cnt'].sum()
+        metrics['safety'] = {
+            'total_accidents': int(total_accidents),
+            'accident_rate': total_accidents / total_employees if total_employees > 0 else 0,
+            'zero_accident_employees': len(emp_df[emp_df['emp_acident_cnt'] == 0])
+        }
+        
+        return metrics
+
+    def calculate_environmental_metrics(self, env_df: pd.DataFrame) -> Dict[str, Any]:
+        """환경(Environmental) 지표 계산"""
+        if env_df.empty:
+            return {}
+            
+        metrics = {}
+        
+        # 최신 데이터
+        latest_year = env_df['year'].max()
+        latest_data = env_df[env_df['year'] == latest_year].iloc[0]
+        
+        metrics['current_status'] = {
+            'latest_year': int(latest_year),
+            'energy_use': float(latest_data['energy_use']) if latest_data['energy_use'] else 0,
+            'green_use': float(latest_data['green_use']) if latest_data['green_use'] else 0,
+            'renewable_yn': latest_data['renewable_yn'],
+            'renewable_ratio': latest_data['renewable_ratio'] if latest_data['renewable_ratio'] else 0
+        }
+        
+        return metrics
+
+    def calculate_governance_metrics(self, company_info: Dict[str, Any], emp_df: pd.DataFrame) -> Dict[str, Any]:
+        """지배구조(Governance) 지표 계산"""
+        metrics = {}
+        
+        # 회사 기본 지배구조 정보
+        metrics['basic_governance'] = {
+            'external_directors': company_info.get('cmp_extemp', 0),
+            'ethics_policy': company_info.get('cmp_ethics_yn') == 'Y',
+            'compliance_policy': company_info.get('cmp_comp_yn') == 'Y'
+        }
+        
+        return metrics
+
+    def generate_comprehensive_report(self, cmp_num: str) -> Dict[str, Any]:
+        """종합 ESG 보고서 생성"""
+        company_info = self.get_company_info(cmp_num)
+        if not company_info:
+            return {'error': f'회사 정보를 찾을 수 없습니다: {cmp_num}'}
+        
+        emp_df = self.get_employee_data()
+        env_df = self.get_environmental_data()
+        
+        # 각 영역별 지표 계산
+        social_metrics = self.calculate_social_metrics(emp_df)
+        environmental_metrics = self.calculate_environmental_metrics(env_df)
+        governance_metrics = self.calculate_governance_metrics(company_info, emp_df)
+        
+        return {
+            'company_info': company_info,
+            'report_generated_at': datetime.now().isoformat(),
+            'data_summary': {
+                'employee_count': len(emp_df),
+                'environmental_data_years': len(env_df)
+            },
+            'esg_metrics': {
+                'environmental': environmental_metrics,
+                'social': social_metrics,
+                'governance': governance_metrics
+            }
+        }
+
+    # 하위 호환성을 위한 메서드
+    def get_company_data(self, company_id: str, **kwargs) -> pd.DataFrame:
+        """하위 호환성을 위한 메서드 - company_id를 cmp_num으로 처리"""
+        env_df = self.get_environmental_data()
+        emp_df = self.get_employee_data()
+        
+        # ESGData 형태로 변환
+        esg_data = []
+        
+        # 환경 데이터 변환
+        for _, row in env_df.iterrows():
+            esg_data.extend([
+                {
+                    'category': 'Environmental',
+                    'metric_name': 'Energy Use',
+                    'value': row['energy_use'],
+                    'unit': 'kWh',
+                    'reporting_year': row['year']
+                },
+                {
+                    'category': 'Environmental',
+                    'metric_name': 'GHG Emissions',
+                    'value': row['green_use'],
+                    'unit': 'tCO2e',
+                    'reporting_year': row['year']
+                }
+            ])
+        
+        # 사회 데이터 변환
+        if not emp_df.empty:
+            social_metrics = self.calculate_social_metrics(emp_df)
+            current_year = datetime.now().year
+            
+            esg_data.append({
+                'category': 'Social',
+                'metric_name': 'Female Employee Ratio',
+                'value': social_metrics.get('diversity', {}).get('female_ratio', 0),
+                'unit': '%',
+                'reporting_year': current_year
             })
         
-        return pd.DataFrame(data)
-    
+        return pd.DataFrame(esg_data)
+
     def calculate_category_summaries(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Calculate summary statistics by ESG category."""
+        """카테고리별 요약 통계 계산"""
         if df.empty:
             return {}
         
         summaries = {}
-        
         for category in df['category'].unique():
             category_data = df[df['category'] == category]
-            
-            # Numeric data only
-            numeric_data = category_data[category_data['value'].notna()]
-            
             summaries[category] = {
                 'total_metrics': len(category_data),
-                'numeric_metrics': len(numeric_data),
-                'data_sources': category_data['data_source'].value_counts().to_dict(),
-                'subcategories': category_data['subcategory'].value_counts().to_dict(),
-                'avg_quality_score': category_data['quality_score'].mean(),
-                'latest_update': category_data['created_at'].max(),
-                'date_range': {
-                    'start': category_data['period_start'].min(),
-                    'end': category_data['period_end'].max()
-                }
+                'latest_year': category_data['reporting_year'].max() if 'reporting_year' in category_data else None
             }
-            
-            if len(numeric_data) > 0:
-                summaries[category].update({
-                    'value_stats': {
-                        'mean': numeric_data['value'].mean(),
-                        'median': numeric_data['value'].median(),
-                        'std': numeric_data['value'].std(),
-                        'min': numeric_data['value'].min(),
-                        'max': numeric_data['value'].max()
-                    }
-                })
         
         return summaries
-    
-    def identify_data_gaps(self, df: pd.DataFrame, required_metrics: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Identify gaps in ESG data coverage."""
-        gaps = {
-            'missing_categories': [],
-            'missing_metrics': [],
-            'incomplete_periods': [],
-            'low_quality_data': [],
-            'recommendations': []
-        }
-        
-        # Standard ESG categories
-        standard_categories = ['Environmental', 'Social', 'Governance']
-        existing_categories = df['category'].unique().tolist() if not df.empty else []
-        gaps['missing_categories'] = [cat for cat in standard_categories if cat not in existing_categories]
-        
-        # Missing required metrics
-        if required_metrics:
-            existing_metrics = df['metric_name'].unique().tolist() if not df.empty else []
-            gaps['missing_metrics'] = [metric for metric in required_metrics if metric not in existing_metrics]
-        
-        # Low quality data (quality score < 0.5)
-        if not df.empty:
-            low_quality = df[df['quality_score'] < 0.5]
-            gaps['low_quality_data'] = low_quality[['metric_name', 'data_source', 'quality_score']].to_dict('records')
-        
-        # Generate recommendations
-        if gaps['missing_categories']:
-            gaps['recommendations'].append(f"Add data for missing ESG categories: {', '.join(gaps['missing_categories'])}")
-        
-        if gaps['missing_metrics']:
-            gaps['recommendations'].append(f"Collect data for required metrics: {', '.join(gaps['missing_metrics'])}")
-        
-        if gaps['low_quality_data']:
-            gaps['recommendations'].append("Review and improve data quality for low-scoring metrics")
-        
-        return gaps
-    
-    def normalize_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Normalize ESG data for comparison and analysis."""
-        if df.empty:
-            return df
-        
-        df_normalized = df.copy()
-        
-        # Standardize category names
-        category_mapping = {
-            'environment': 'Environmental',
-            'environmental': 'Environmental',
-            'social': 'Social',
-            'governance': 'Governance',
-            'gov': 'Governance'
-        }
-        
-        df_normalized['category'] = df_normalized['category'].str.lower().map(
-            lambda x: category_mapping.get(x, x.title() if x else x)
-        )
-        
-        # Standardize units
-        unit_mapping = {
-            'kwh': 'kWh',
-            'gj': 'GJ',
-            'co2': 'CO2e',
-            'co2e': 'CO2e',
-            'tons': 'tonnes',
-            'ton': 'tonnes',
-            'm3': 'm쨀',
-            'liters': 'L',
-            'litres': 'L'
-        }
-        
-        df_normalized['unit'] = df_normalized['unit'].str.lower().map(
-            lambda x: unit_mapping.get(x, x) if x else x
-        )
-        
-        # Clean metric names
-        df_normalized['metric_name'] = df_normalized['metric_name'].str.strip()
-        
-        return df_normalized
-    
-    def aggregate_by_period(self, 
-                           df: pd.DataFrame, 
-                           period: str = 'year',
-                           metrics: Optional[List[str]] = None) -> pd.DataFrame:
-        """Aggregate ESG data by time period."""
-        if df.empty:
-            return df
-        
-        # Filter metrics if specified
-        if metrics:
-            df = df[df['metric_name'].isin(metrics)]
-        
-        # Create period column
-        if period == 'year':
-            df['period'] = df['reporting_year']
-        elif period == 'quarter':
-            df['period'] = df['period_start'].dt.to_period('Q')
-        elif period == 'month':
-            df['period'] = df['period_start'].dt.to_period('M')
-        else:
-            raise ValueError(f"Unsupported period: {period}")
-        
-        # Aggregate numeric data
-        numeric_df = df[df['value'].notna()]
-        
-        if numeric_df.empty:
-            return pd.DataFrame()
-        
-        aggregated = numeric_df.groupby(['period', 'category', 'metric_name', 'unit']).agg({
-            'value': ['sum', 'mean', 'count'],
-            'quality_score': 'mean'
-        }).reset_index()
-        
-        # Flatten column names
-        aggregated.columns = ['period', 'category', 'metric_name', 'unit', 
-                             'total_value', 'avg_value', 'data_points', 'avg_quality']
-        
-        return aggregated
-    
-    def calculate_trends(self, df: pd.DataFrame, metric_name: str) -> Dict[str, Any]:
-        """Calculate trends for a specific metric over time."""
-        metric_data = df[df['metric_name'] == metric_name].copy()
-        
-        if len(metric_data) < 2:
-            return {'error': 'Insufficient data points for trend analysis'}
-        
-        # Sort by period
-        metric_data = metric_data.sort_values('reporting_year')
-        
-        # Calculate year-over-year changes
-        metric_data['yoy_change'] = metric_data['value'].pct_change()
-        metric_data['absolute_change'] = metric_data['value'].diff()
-        
-        # Calculate trend statistics
-        trend_stats = {
-            'metric_name': metric_name,
-            'data_points': len(metric_data),
-            'period_range': {
-                'start': metric_data['reporting_year'].min(),
-                'end': metric_data['reporting_year'].max()
-            },
-            'value_range': {
-                'min': metric_data['value'].min(),
-                'max': metric_data['value'].max()
-            },
-            'average_yoy_change': metric_data['yoy_change'].mean(),
-            'total_change': metric_data['value'].iloc[-1] - metric_data['value'].iloc[0],
-            'trend_direction': 'increasing' if metric_data['value'].iloc[-1] > metric_data['value'].iloc[0] else 'decreasing'
-        }
-        
-        # Calculate linear trend
-        years = metric_data['reporting_year'].values
-        values = metric_data['value'].values
-        
-        if len(years) > 1:
-            slope = np.corrcoef(years, values)[0, 1] * (values.std() / years.std())
-            trend_stats['trend_slope'] = slope
-            trend_stats['correlation'] = np.corrcoef(years, values)[0, 1]
-        
-        return trend_stats
-    
-    def export_processed_data(self, 
-                             df: pd.DataFrame, 
-                             format: str = 'excel',
-                             filename: Optional[str] = None) -> str:
-        """Export processed data to file."""
-        if filename is None:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f'esg_data_export_{timestamp}'
-        
-        if format.lower() == 'excel':
-            filepath = f'exports/{filename}.xlsx'
-            df.to_excel(filepath, index=False)
-        elif format.lower() == 'csv':
-            filepath = f'exports/{filename}.csv'
-            df.to_csv(filepath, index=False)
-        elif format.lower() == 'json':
-            filepath = f'exports/{filename}.json'
-            df.to_json(filepath, orient='records', date_format='iso')
-        else:
-            raise ValueError(f"Unsupported export format: {format}")
-        
-        return filepath 

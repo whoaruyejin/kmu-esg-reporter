@@ -1,9 +1,12 @@
 """Database models for ESG Reporter."""
 
-from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, JSON
+# from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, JSON
+
+# 수정
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, JSON, Numeric
+from decimal import Decimal  # Python Decimal 타입
 from sqlalchemy.orm import relationship
 from datetime import datetime
-
 from .base import Base
 
 """
@@ -78,97 +81,81 @@ ESG 분석용 DB 구조 변경 및 리팩토링 요약
 - 새로운 테이블 데이터를 기존 ESGData 형태로 변환하여 반환
 - 새로운 DB 구조 기반으로 더 정확하고 실용적인 ESG 분석 가능
 """
+"""Database models for ESG Reporter - Updated to match new DB schema."""
+
+# 하위 호환용 Dummy
+class ESGData:
+    """Dummy ESGData for backward compatibility."""
+    pass
 
 
-class Company(Base):
-    """Company model for storing company information."""
+class CmpInfo(Base):
+    """회사 기본 정보 테이블 - CMP_INFO"""
     
-    __tablename__ = "companies"
+    __tablename__ = "cmp_info"
     
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False, index=True)
-    business_number = Column(String(50), unique=True, index=True)
-    industry = Column(String(100))
-    size = Column(String(50))  # small, medium, large
-    address = Column(Text)
-    contact_email = Column(String(255))
-    contact_phone = Column(String(50))
-    description = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    cmp_num = Column(String(10), primary_key=True)
+    cmp_nm = Column(String(100), nullable=False)
+    cmp_industry = Column(String(20))
+    cmp_sector = Column(String(20))
+    cmp_addr = Column(String(200))
+    cmp_extemp = Column(Integer)
+    cmp_ethics_yn = Column(String(1))
+    cmp_comp_yn = Column(String(1))
     
     # Relationships
-    esg_data = relationship("ESGData", back_populates="company")
     reports = relationship("Report", back_populates="company")
+    chat_sessions = relationship("ChatSession", back_populates="company")
+    data_import_logs = relationship("DataImportLog", back_populates="company")
 
+class EmpInfo(Base):
+    """직원 기본 정보 테이블 - EMP_INFO"""
+    
+    __tablename__ = "emp_info"
+    
+    emp_id = Column(Integer, primary_key=True)
+    emp_nm = Column(String(10), nullable=False)
+    emp_birth = Column(String(8))
+    emp_tel = Column(String(20))
+    emp_email = Column(String(20))
+    emp_join = Column(String(8))
+    emp_acident_cnt = Column(Integer)
+    emp_board_yn = Column(String(1))
+    emp_gender = Column(String(1))
 
-class ESGData(Base):
-    """ESG data model for storing environmental, social, and governance metrics."""
+class Env(Base):
+    """환경현황 테이블 - ENV"""
     
-    __tablename__ = "esg_data"
+    __tablename__ = "env"
     
-    id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
-    
-    # Data categorization
-    category = Column(String(50), nullable=False)  # Environmental, Social, Governance
-    subcategory = Column(String(100))
-    metric_name = Column(String(255), nullable=False)
-    metric_code = Column(String(50))
-    
-    # Data values
-    value = Column(Float)
-    unit = Column(String(50))
-    text_value = Column(Text)  # For qualitative data
-    
-    # Data source and quality
-    data_source = Column(String(100))  # manual, excel, erp, api
-    source_file = Column(String(255))  # Original file name if applicable
-    quality_score = Column(Float, default=1.0)  # Data quality indicator
-    
-    # Temporal information
-    period_start = Column(DateTime)
-    period_end = Column(DateTime)
-    reporting_year = Column(Integer, index=True)
-    
-    # Metadata
-    raw_data = Column(JSON)  # Store original raw data
-    notes = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Relationships
-    company = relationship("Company", back_populates="esg_data")
+    year = Column(Integer, primary_key=True)
+    energy_use = Column(Float)
+    green_use = Column(Float)
+    renewable_yn = Column(String(1))
+    renewable_ratio = Column(Numeric(5,3))
 
-
+# 기존 테이블들 - cmp_num FK로 수정
 class Report(Base):
     """Generated ESG reports."""
     
     __tablename__ = "reports"
     
     id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
-    
+    company_id = Column(String(10), ForeignKey("cmp_info.cmp_num"), nullable=False)
     title = Column(String(255), nullable=False)
-    report_type = Column(String(50))  # annual, quarterly, custom
+    report_type = Column(String(50))
     content = Column(Text)
     summary = Column(Text)
-    
-    # Report metadata
-    generated_by = Column(String(50))  # system, user, chatbot
-    format = Column(String(20))  # pdf, html, json
-    status = Column(String(20), default="draft")  # draft, published, archived
-    
-    # File information
+    generated_by = Column(String(50))
+    format = Column(String(20))
+    status = Column(String(20), default="draft")
     file_path = Column(String(500))
     file_size = Column(Integer)
-    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    company = relationship("Company", back_populates="reports")
-
+    company = relationship("CmpInfo", back_populates="reports")
 
 class ChatSession(Base):
     """Chat sessions for the ESG chatbot."""
@@ -177,26 +164,18 @@ class ChatSession(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String(255), unique=True, nullable=False, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
-    
-    # Session metadata
-    user_id = Column(String(255))  # For future user management
+    company_id = Column(String(10), ForeignKey("cmp_info.cmp_num"), nullable=True)
+    user_id = Column(String(255))
     title = Column(String(255))
-    
-    # Chat history
-    messages = Column(JSON)  # Store chat history as JSON
-    context = Column(JSON)   # Store conversation context
-    
-    # Session statistics
+    messages = Column(JSON)
+    context = Column(JSON)
     message_count = Column(Integer, default=0)
     last_activity = Column(DateTime, default=datetime.utcnow)
-    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    company = relationship("Company")
-
+    company = relationship("CmpInfo", back_populates="chat_sessions")
 
 class DataImportLog(Base):
     """Log for data import operations."""
@@ -204,23 +183,19 @@ class DataImportLog(Base):
     __tablename__ = "data_import_logs"
     
     id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
-    
-    # Import details
-    import_type = Column(String(50))  # excel, erp, api, manual
+    company_id = Column(String(10), ForeignKey("cmp_info.cmp_num"), nullable=False)
+    import_type = Column(String(50))
     source_file = Column(String(500))
-    status = Column(String(20))  # success, error, partial
-    
-    # Statistics
+    status = Column(String(20))
     records_processed = Column(Integer, default=0)
     records_imported = Column(Integer, default=0)
     records_rejected = Column(Integer, default=0)
-    
-    # Error information
     error_log = Column(JSON)
     validation_errors = Column(JSON)
-    
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
-    company = relationship("Company")
+    company = relationship("CmpInfo", back_populates="data_import_logs")
+
+# 하위 호환성을 위한 별칭
+Company = CmpInfo

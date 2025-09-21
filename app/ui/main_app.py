@@ -22,7 +22,7 @@ except ImportError as e:
     logging.error(f"Error importing pages: {e}")
     # Create dummy pages for development
     class DummyPage:
-        async def render(self, db_session, company_id=None):
+        async def render(self, db_session, cmp_num=None):  # company_id → cmp_num
             ui.label('Page not implemented yet')
     
     DashboardPage = DummyPage
@@ -33,12 +33,11 @@ except ImportError as e:
 
 logger = logging.getLogger(__name__)
 
-
 class ESGReporterApp:
     """Main ESG Reporter Application class."""
     
     def __init__(self):
-        self.current_company_id: Optional[int] = None
+        self.current_cmp_num: Optional[str] = None  # company_id → cmp_num, int → str
         self.current_page = "dashboard"
         self.db_session = None
         
@@ -59,9 +58,6 @@ class ESGReporterApp:
         # Set app configuration
         app.add_static_files('/static', str(Path(__file__).parent.parent.parent / 'static'))
         ui.run_with.fast_reload = settings.app.DEBUG
-        
-        # Setup main layout
-        # self._setup_layout()
         
         # Setup routing
         self._setup_routing()
@@ -165,7 +161,8 @@ class ESGReporterApp:
             page = self.pages.get(page_name)
             if page:
                 with self.content_container:
-                    await page.render(self.db_session, self.current_company_id)
+                    # 새로운 cmp_num 파라미터 사용
+                    await page.render(self.db_session, self.current_cmp_num)
             else:
                 with self.content_container:
                     ui.label(f'Page "{page_name}" not found').classes('text-h4 text-center')
@@ -174,6 +171,10 @@ class ESGReporterApp:
             logger.error(f"Error loading page {page_name}: {str(e)}")
             with self.content_container:
                 ui.label(f'Error loading page: {str(e)}').classes('text-negative')
+                # 디버깅을 위한 상세 오류 정보
+                if settings.app.DEBUG:
+                    import traceback
+                    ui.label(f'Traceback: {traceback.format_exc()}').classes('text-caption text-negative')
     
     def _navigate_to(self, page_name: str) -> None:
         """Navigate to a specific page."""
@@ -181,7 +182,7 @@ class ESGReporterApp:
     
     def _on_company_change(self, e) -> None:
         """Handle company selection change."""
-        self.current_company_id = e.value
+        self.current_cmp_num = e.value  # company_id → cmp_num
         
         # Refresh current page with new company context
         asyncio.create_task(self._load_page(self.current_page))
@@ -189,21 +190,28 @@ class ESGReporterApp:
     async def refresh_company_list(self) -> None:
         """Refresh the company selection dropdown."""
         try:
-            from app.core.database.models import Company
+            # 새로운 모델 import
+            from app.core.database.models import CmpInfo
             
             db = next(get_db())
-            companies = db.query(Company).all()
+            companies = db.query(CmpInfo).all()  # Company → CmpInfo
             
-            options = {company.id: company.name for company in companies}
+            # cmp_num을 키로, cmp_nm을 값으로 사용
+            options = {company.cmp_num: company.cmp_nm for company in companies}
             self.company_select.options = options
             
-            if companies and not self.current_company_id:
-                self.current_company_id = companies[0].id
-                self.company_select.value = self.current_company_id
+            # 기본 회사 설정
+            if companies and not self.current_cmp_num:
+                self.current_cmp_num = companies[0].cmp_num
+                self.company_select.value = self.current_cmp_num
                 
         except Exception as e:
             logger.error(f"Error refreshing company list: {str(e)}")
-
+            # 개발용 기본 회사 설정
+            if settings.app.DEBUG:
+                self.company_select.options = {"6182618882": "국민AI 주식회사"}
+                self.current_cmp_num = "6182618882"
+                self.company_select.value = "6182618882"
 
 def create_app() -> None:
     """Create and configure the NiceGUI application."""
@@ -216,6 +224,9 @@ def create_app() -> None:
     # Create app instance
     esg_app = ESGReporterApp()
     esg_app.setup_app()
+    
+    # 앱 시작 시 회사 목록 로드
+    # asyncio.create_task(esg_app.refresh_company_list())
     
     # Start the application
     ui.run(

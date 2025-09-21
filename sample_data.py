@@ -5,7 +5,10 @@ from datetime import datetime, date
 import random
 
 from app.core.database import get_db, init_db
-from app.core.database.models import Company, ESGData
+# from app.core.database.models import Company, ESGData
+
+# 새로운 방식
+from app.core.database.models import CmpInfo, EmpInfo, Env
 
 
 def create_sample_company(db: Session) -> Company:
