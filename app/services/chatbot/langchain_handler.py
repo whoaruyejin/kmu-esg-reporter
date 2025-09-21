@@ -5,8 +5,8 @@ import logging
 from functools import lru_cache
 
 try:
-    from langchain.llms import OpenAI
-    from langchain.chat_models import ChatOpenAI
+    from langchain_community.llms import OpenAI
+    from langchain_community.chat_models import ChatOpenAI
     from langchain.schema import BaseMessage, HumanMessage, AIMessage, SystemMessage
     from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
     from langchain.chains import ConversationChain

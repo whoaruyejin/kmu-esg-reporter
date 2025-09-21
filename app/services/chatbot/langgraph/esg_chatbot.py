@@ -1,4 +1,4 @@
-"""ESG Report Generation Chatbot using LangGraph."""
+"""ESG Report Generation Chatbot using LangGraph - Updated for new schema."""
 
 import uuid
 import os
@@ -17,19 +17,18 @@ from typing_extensions import TypedDict
 from typing import Annotated
 
 from sqlalchemy.orm import Session
-from app.core.database.models import ChatSession, Company, ESGData, Report
+from app.core.database.models import CmpInfo, EmpInfo, Env, ChatSession, Report, DataImportLog  # 새로운 모델 import
 from app.data.processors.data_processor import ESGDataProcessor
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
-
 
 class ESGAgentState(TypedDict):
     """ESG 챗봇의 상태를 정의하는 TypedDict"""
     messages: Annotated[List, add_messages]
     query: str
     intent: str  # data_query, report_generation, analysis_request, general_query
-    company_id: Optional[int]
+    cmp_num: Optional[str]  # company_id -> cmp_num으로 변경
     company_context: Dict[str, Any]
     esg_data_summary: Dict[str, Any]
     tool_results: Dict[str, Any]
@@ -39,13 +38,12 @@ class ESGAgentState(TypedDict):
     session_id: str
     iteration_count: int
 
-
 class ESGReportChatbot:
     """ESG 보고서 생성을 위한 LangGraph 기반 챗봇"""
     
-    def __init__(self, db: Session, company_id: Optional[int] = None, log_element=None):
+    def __init__(self, db: Session, cmp_num: Optional[str] = None, log_element=None):
         self.db = db
-        self.company_id = company_id
+        self.cmp_num = cmp_num or "6182618882"  # 더미 데이터 회사코드 (기본값)
         self.log_element = log_element
         self.data_processor = ESGDataProcessor(db)
         self.max_iterations = 3
@@ -85,76 +83,67 @@ class ESGReportChatbot:
         """ESG 전용 도구들 설정"""
         
         @tool
-        def get_company_esg_data(company_id: int, category: str = None) -> str:
+        def get_company_esg_data(cmp_num: str, category: str = None) -> str:
             """회사의 ESG 데이터를 조회합니다."""
             try:
-                df = self.data_processor.get_company_data(company_id, categories=[category] if category else None)
-                if df.empty:
-                    return f"회사 ID {company_id}에 대한 ESG 데이터가 없습니다."
+                # 새로운 데이터 처리기 사용
+                comprehensive_report = self.data_processor.generate_comprehensive_report(cmp_num)
+                if 'error' in comprehensive_report:
+                    return comprehensive_report['error']
                 
-                summary = self.data_processor.calculate_category_summaries(df)
-                return json.dumps(summary, ensure_ascii=False, indent=2)
+                return json.dumps(comprehensive_report['esg_metrics'], ensure_ascii=False, indent=2)
             except Exception as e:
                 return f"데이터 조회 중 오류 발생: {str(e)}"
         
         @tool
-        def analyze_esg_trends(company_id: int, metric_name: str) -> str:
+        def analyze_esg_trends(cmp_num: str, category: str = "all") -> str:
             """특정 ESG 지표의 트렌드를 분석합니다."""
             try:
-                df = self.data_processor.get_company_data(company_id)
-                trend_data = self.data_processor.calculate_trends(df, metric_name)
-                return json.dumps(trend_data, ensure_ascii=False, indent=2)
+                # 환경 데이터 트렌드 분석
+                env_df = self.data_processor.get_environmental_data()
+                if env_df.empty:
+                    return "환경 데이터가 없어 트렌드 분석을 수행할 수 없습니다."
+                
+                env_metrics = self.data_processor.calculate_environmental_metrics(env_df)
+                return json.dumps(env_metrics, ensure_ascii=False, indent=2)
             except Exception as e:
                 return f"트렌드 분석 중 오류 발생: {str(e)}"
         
         @tool
-        def identify_data_gaps(company_id: int) -> str:
+        def identify_data_gaps(cmp_num: str) -> str:
             """ESG 데이터의 누락 영역을 식별합니다."""
             try:
-                df = self.data_processor.get_company_data(company_id)
-                gaps = self.data_processor.identify_data_gaps(df)
+                gaps = self.data_processor.identify_data_gaps(cmp_num)
                 return json.dumps(gaps, ensure_ascii=False, indent=2)
             except Exception as e:
                 return f"데이터 갭 분석 중 오류 발생: {str(e)}"
         
         @tool
-        def generate_esg_report(company_id: int, report_type: str = "comprehensive") -> str:
+        def generate_esg_report(cmp_num: str, report_type: str = "comprehensive") -> str:
             """ESG 보고서를 생성합니다."""
             try:
-                company = self.db.query(Company).filter_by(id=company_id).first()
+                company = self.db.query(CmpInfo).filter_by(cmp_num=cmp_num).first()
                 if not company:
                     return "회사 정보를 찾을 수 없습니다."
                 
-                df = self.data_processor.get_company_data(company_id)
-                if df.empty:
-                    return "보고서 생성을 위한 ESG 데이터가 부족합니다."
-                
-                # 보고서 생성 (실제 구현에서는 더 복잡한 로직)
-                summary = self.data_processor.calculate_category_summaries(df)
-                gaps = self.data_processor.identify_data_gaps(df)
-                
-                report_content = {
-                    "company_name": company.name,
-                    "report_type": report_type,
-                    "generated_at": datetime.now().isoformat(),
-                    "data_summary": summary,
-                    "data_gaps": gaps,
-                    "recommendations": "데이터 기반 개선 권고사항을 여기에 포함"
-                }
+                # 종합 보고서 생성
+                comprehensive_report = self.data_processor.generate_comprehensive_report(cmp_num)
+                if 'error' in comprehensive_report:
+                    return comprehensive_report['error']
                 
                 # 데이터베이스에 보고서 저장
                 report = Report(
-                    company_id=company_id,
-                    title=f"{company.name} ESG 보고서 ({report_type})",
+                    cmp_num=cmp_num,  # company_id -> cmp_num으로 변경
+                    title=f"{company.cmp_nm} ESG 보고서 ({report_type})",
                     report_type=report_type,
-                    content=json.dumps(report_content, ensure_ascii=False),
+                    content=json.dumps(comprehensive_report, ensure_ascii=False),
                     generated_by="chatbot",
                     format="json"
                 )
                 self.db.add(report)
                 self.db.commit()
                 
-                return json.dumps(report_content, ensure_ascii=False, indent=2)
+                return json.dumps(comprehensive_report, ensure_ascii=False, indent=2)
             except Exception as e:
                 return f"보고서 생성 중 오류 발생: {str(e)}"
         
@@ -164,7 +153,7 @@ class ESGReportChatbot:
         """ESG 챗봇 워크플로우 구성"""
         workflow_builder = StateGraph(ESGAgentState)
         
-        # 노드 정의
+        # 노드 정의 (동일)
         workflow_builder.add_node("analyze_intent", self._analyze_intent)
         workflow_builder.add_node("load_company_context", self._load_company_context)
         workflow_builder.add_node("check_data_availability", self._check_data_availability)
@@ -174,10 +163,9 @@ class ESGReportChatbot:
         workflow_builder.add_node("handle_no_data", self._handle_no_data)
         workflow_builder.add_node("handle_no_company", self._handle_no_company)
         
-        # 워크플로우 구축
+        # 워크플로우 구축 (동일)
         workflow_builder.add_edge(START, "analyze_intent")
         
-        # 회사 선택 여부 확인
         workflow_builder.add_conditional_edges(
             "analyze_intent",
             self._decide_company_check,
@@ -190,7 +178,6 @@ class ESGReportChatbot:
         workflow_builder.add_edge("handle_no_company", END)
         workflow_builder.add_edge("load_company_context", "check_data_availability")
         
-        # 데이터 가용성에 따른 분기
         workflow_builder.add_conditional_edges(
             "check_data_availability",
             self._decide_data_availability,
@@ -200,7 +187,7 @@ class ESGReportChatbot:
             }
         )
         
-        workflow_builder.add_edge("handle_no_data", "generate_response")
+        workflow_builder.add_edge("handle_no_data", "save_conversation")
         workflow_builder.add_edge("execute_esg_tools", "generate_response")
         workflow_builder.add_edge("generate_response", "save_conversation")
         workflow_builder.add_edge("save_conversation", END)
@@ -209,63 +196,86 @@ class ESGReportChatbot:
         self.agent_workflow = workflow_builder.compile()
     
     def _analyze_intent(self, state: ESGAgentState) -> ESGAgentState:
-        """사용자 의도 분석"""
+        """사용자 의도 분석 - UI 컨텍스트 포함"""
         query = state.get("query", "").lower()
         
-        # 의도 분류
-        if any(keyword in query for keyword in ["보고서", "리포트", "생성", "작성"]):
-            intent = "report_generation"
-        elif any(keyword in query for keyword in ["데이터", "수치", "현황", "보여줘"]):
-            intent = "data_query"
-        elif any(keyword in query for keyword in ["분석", "트렌드", "비교", "개선"]):
-            intent = "analysis_request"
+        # UI에서 전달된 컨텍스트 파싱
+        ui_context = None
+        if "[UI 설정:" in query:
+            try:
+                context_part = query.split("[UI 설정:")[1].split("]")[0]
+                ui_context = eval(context_part)  # 실제로는 json.loads 사용 권장
+            except:
+                ui_context = None
+        
+        # UI에서 선택된 intent가 있으면 우선 사용
+        if ui_context and ui_context.get("selected_intent"):
+            intent = ui_context["selected_intent"]
         else:
-            intent = "general_query"
+            # 기존 텍스트 분석 로직
+            if any(keyword in query for keyword in ["보고서", "리포트", "생성", "작성"]):
+                intent = "report_generation"
+            elif any(keyword in query for keyword in ["데이터", "수치", "현황", "보여줘"]):
+                intent = "data_query"
+            elif any(keyword in query for keyword in ["분석", "트렌드", "비교", "개선"]):
+                intent = "analysis_request"
+            else:
+                intent = "general_query"
         
         return {
             "intent": intent,
+            "ui_context": ui_context or {},
             "iteration_count": 0,
             "messages": [SystemMessage(content="ESG 챗봇이 질문을 분석중입니다...")]
         }
     
     def _decide_company_check(self, state: ESGAgentState) -> Literal["has_company", "no_company"]:
         """회사 선택 여부 확인"""
-        return "has_company" if state.get("company_id") else "no_company"
+        return "has_company" if state.get("cmp_num") else "no_company"
     
     def _load_company_context(self, state: ESGAgentState) -> ESGAgentState:
         """회사 컨텍스트 로드"""
-        company_id = state.get("company_id")
-        if not company_id:
+        cmp_num = state.get("cmp_num")
+        if not cmp_num:
             return {"company_context": {}}
         
         try:
-            company = self.db.query(Company).filter_by(id=company_id).first()
-            context = {}
-            if company:
+            company_info = self.data_processor.get_company_info(cmp_num)
+            if company_info:
                 context = {
-                    "name": company.name,
-                    "industry": company.industry,
-                    "size": company.size,
-                    "description": company.description
+                    "cmp_nm": company_info["cmp_nm"],
+                    "cmp_industry": company_info["cmp_industry"],
+                    "cmp_sector": company_info["cmp_sector"],
+                    "cmp_addr": company_info["cmp_addr"]
                 }
-            return {"company_context": context}
+                return {"company_context": context}
+            else:
+                return {"company_context": {}}
         except Exception as e:
             logger.error(f"회사 컨텍스트 로드 오류: {str(e)}")
             return {"company_context": {}}
     
     def _check_data_availability(self, state: ESGAgentState) -> ESGAgentState:
         """ESG 데이터 가용성 확인"""
-        company_id = state.get("company_id")
-        if not company_id:
+        cmp_num = state.get("cmp_num")
+        if not cmp_num:
             return {"needs_data_collection": True}
         
         try:
-            df = self.data_processor.get_company_data(company_id)
-            has_data = not df.empty
+            # 직원 및 환경 데이터 확인
+            emp_df = self.data_processor.get_employee_data()
+            env_df = self.data_processor.get_environmental_data()
+            
+            has_data = not emp_df.empty or not env_df.empty
             
             esg_summary = {}
             if has_data:
-                esg_summary = self.data_processor.calculate_category_summaries(df)
+                # 간단한 요약 정보 생성
+                esg_summary = {
+                    "employee_count": len(emp_df),
+                    "environmental_years": len(env_df),
+                    "latest_env_year": int(env_df['year'].max()) if not env_df.empty else None
+                }
             
             return {
                 "needs_data_collection": not has_data,
@@ -280,31 +290,43 @@ class ESGReportChatbot:
         return "no_data" if state.get("needs_data_collection", True) else "has_data"
     
     def _execute_esg_tools(self, state: ESGAgentState) -> ESGAgentState:
-        """ESG 도구 실행"""
+        """ESG 도구 실행 - UI 컨텍스트 반영"""
         intent = state.get("intent", "")
-        company_id = state.get("company_id")
-        query = state.get("query", "")
+        cmp_num = state.get("cmp_num")
+        ui_context = state.get("ui_context", {})
+        
+        # UI에서 선택된 카테고리 정보 활용
+        selected_category = ui_context.get("selected_category", "all")
+        selected_period = ui_context.get("selected_period", "current_year")
+        
         tool_results = {}
         
         try:
             if intent == "data_query":
                 # 데이터 조회 도구 실행
-                result = self.tools[0].invoke(company_id)
+                result = self.tools[0].invoke(cmp_num, selected_category)
                 tool_results["esg_data"] = result
+                tool_results["requested_category"] = selected_category
+                tool_results["requested_period"] = selected_period
                 
             elif intent == "analysis_request":
                 # 트렌드 분석 도구 실행
-                result = self.tools[1].invoke(company_id, "전체")
+                result = self.tools[1].invoke(cmp_num, selected_category)
                 tool_results["trend_analysis"] = result
                 
                 # 데이터 갭 분석
-                gap_result = self.tools[2].invoke(company_id)
+                gap_result = self.tools[2].invoke(cmp_num)
                 tool_results["data_gaps"] = gap_result
+                tool_results["analysis_category"] = selected_category
+                tool_results["analysis_period"] = selected_period
                 
             elif intent == "report_generation":
                 # 보고서 생성 도구 실행
-                result = self.tools[3].invoke(company_id, "comprehensive")
+                report_type = "comprehensive" if selected_category == "all" else "category_specific"
+                result = self.tools[3].invoke(cmp_num, report_type)
                 tool_results["generated_report"] = result
+                tool_results["report_category"] = selected_category
+                tool_results["report_period"] = selected_period
                 
         except Exception as e:
             logger.error(f"도구 실행 오류: {str(e)}")
@@ -345,7 +367,7 @@ class ESGReportChatbot:
     
     def _handle_no_data(self, state: ESGAgentState) -> ESGAgentState:
         """데이터 없음 처리"""
-        company_name = state.get("company_context", {}).get("name", "선택된 회사")
+        company_name = state.get("company_context", {}).get("cmp_nm", "선택된 회사")
         
         response = f"""
 {company_name}의 ESG 데이터가 아직 등록되지 않았습니다.
@@ -355,17 +377,15 @@ ESG 보고서를 생성하기 위해서는 다음 데이터가 필요합니다:
 **환경(Environmental) 데이터:**
 - 에너지 사용량
 - 온실가스 배출량
-- 폐기물 발생량
-- 용수 사용량
+- 재생에너지 사용 비율
 
 **사회(Social) 데이터:**
+- 직원 정보 (성별, 이사회 참여, 산재 발생 등)
 - 직원 다양성 지표
-- 안전사고 발생률
-- 교육훈련 시간
-- 지역사회 기여 활동
+- 안전사고 현황
 
 **지배구조(Governance) 데이터:**
-- 이사회 구성
+- 사외이사 수
 - 윤리경영 정책
 - 컴플라이언스 현황
 
@@ -377,11 +397,11 @@ ESG 보고서를 생성하기 위해서는 다음 데이터가 필요합니다:
     def _handle_no_company(self, state: ESGAgentState) -> ESGAgentState:
         """회사 미선택 처리"""
         response = """
-    ESG 분석과 보고서 생성을 위해 먼저 회사를 선택해 주세요.
+ESG 분석과 보고서 생성을 위해 먼저 회사를 선택해 주세요.
 
-    상단의 회사 선택 드롭다운에서 분석하고자 하는 회사를 선택하신 후 다시 질문해 주시기 바랍니다.
+상단의 회사 선택 드롭다운에서 분석하고자 하는 회사를 선택하신 후 다시 질문해 주시기 바랍니다.
 
-    새로운 회사를 등록하시려면 '회사 관리' 페이지를 이용해 주세요.
+새로운 회사를 등록하시려면 '회사 관리' 페이지를 이용해 주세요.
         """
         
         return {"response_content": response.strip()}
@@ -428,7 +448,7 @@ ESG 보고서를 생성하기 위해서는 다음 데이터가 필요합니다:
         session_id = str(uuid.uuid4())
         chat_session = ChatSession(
             session_id=session_id,
-            company_id=self.company_id,
+            company_id=self.cmp_num,  # company_id -> cmp_num으로 변경
             user_id=user_id,
             title=title or "ESG 채팅 세션",
             messages=[],
@@ -439,14 +459,14 @@ ESG 보고서를 생성하기 위해서는 다음 데이터가 필요합니다:
         self.db.commit()
         return session_id
     
-    async def stream_response(self, query: str, session_id: str) -> str:
-        """스트리밍 응답 처리"""
+    async def stream_response(self, query: str, session_id: str, context: Dict[str, Any] = None) -> str:
+        """스트리밍 응답 처리 - 추가 컨텍스트 지원"""
         try:
             initial_state = {
                 "messages": [HumanMessage(content=query)],
                 "query": query,
                 "intent": "",
-                "company_id": self.company_id,
+                "cmp_num": self.cmp_num,  # company_id -> cmp_num으로 변경
                 "company_context": {},
                 "esg_data_summary": {},
                 "tool_results": {},
@@ -454,7 +474,8 @@ ESG 보고서를 생성하기 위해서는 다음 데이터가 필요합니다:
                 "needs_data_collection": False,
                 "report_generated": False,
                 "session_id": session_id,
-                "iteration_count": 0
+                "iteration_count": 0,
+                "ui_context": context or {}  # UI 컨텍스트 추가
             }
             
             # 워크플로우 실행
