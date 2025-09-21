@@ -1,0 +1,58 @@
+<!-- app/templates/reports/esg/base.html -->
+<!doctype html><html lang="ko"><head>
+  <meta charset="utf-8">
+  <title>{{ report.company.cmp_nm }} ESG Report</title>
+  <style>
+    .cover { display:flex; height:88vh; align-items:center; }
+    .muted { color:#666; font-size:12px }
+    .card { border:1px solid #ddd; border-radius:8px; padding:12px; margin:6px 0 }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .page-break { page-break-before: always; }
+    .footer { font-size:10px; color:#888; text-align:center; margin-top:12px; }
+  </style>
+</head><body>
+
+<!-- 표지 -->
+<section class="cover">
+  <div>
+    <h1>{{ report.company.cmp_nm }} — ESG Report</h1>
+    <div class="muted">
+      기간: {{ report.period_label }}<br/>
+      생성일: {{ report.generated_at }}
+    </div>
+  </div>
+</section>
+
+<div class="page-break"></div>
+
+<!-- 요약 카드 (1페이지) -->
+<section>
+  <h2>Executive Summary</h2>
+  <div class="grid">
+    {% for k,v in report.summary.items() %}
+      <div class="card">
+        <strong>{{ k }}</strong><br/>{{ v }}
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+<div class="page-break"></div>
+
+<!-- 환경(2p) -->
+{{ env_html|safe }}
+
+<div class="page-break"></div>
+
+<!-- 사회(2p) -->
+{{ soc_html|safe }}
+
+<div class="page-break"></div>
+
+<!-- 거버넌스(2p) -->
+{{ gov_html|safe }}
+
+<footer class="footer">
+  <div>© {{ report.company.cmp_nm }} — Confidential</div>
+</footer>
+</body></html>

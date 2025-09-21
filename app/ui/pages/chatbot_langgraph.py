@@ -8,6 +8,7 @@ import asyncio
 
 from .base_page import BasePage
 from app.services.chatbot.langgraph.esg_chatbot import ESGReportChatbot
+from app.ui.actions.report_download import generate_esg_pdf
 
 import logging
 
@@ -26,16 +27,18 @@ class ChatbotPage(BasePage):
         self.selected_options = {}
 
     async def render(
-        self, db_session: Session, company_id: Optional[int] = None
+        self, db_session: Session, cmp_num: Optional[int] = None
     ) -> None:
         """Render structured chatbot page."""
-        await super().render(db_session, company_id)
+        await super().render(db_session, cmp_num)
+        self.db = db_session
+        self.cmp_num = cmp_num or "6182618882"
 
         ui.label("🤖 ESG AI 챗봇").classes("text-4xl font-extrabold mb-6 text-black")
 
 
         # Initialize chatbot
-        self.chatbot = ESGReportChatbot(db_session, company_id)
+        self.chatbot = ESGReportChatbot(db_session, cmp_num)
         if not self.session_id:
             self.session_id = self.chatbot.create_session()
 
@@ -321,24 +324,42 @@ class ChatbotPage(BasePage):
 
     async def _stream_ai_response(self, query: str) -> None:
         """Stream AI response."""
-        response_container = ui.column().classes("w-full")
+        # response_container = ui.column().classes("w-full")
 
-        with self.results_area:
-            with response_container:
-                with ui.row().classes("items-start gap-3 mb-4"):
-                    ui.avatar(icon="smart_toy", color="primary")
-                    with ui.column():
-                        ui.label("AI Assistant").classes("font-weight-bold text-sm")
-                        response_label = ui.label("").classes("text-body2")
+        # with self.results_area:
+        #     with response_container:
+        #         with ui.row().classes("items-start gap-3 mb-4"):
+        #             ui.avatar(icon="smart_toy", color="primary")
+        #             with ui.column():
+        #                 ui.label("AI Assistant").classes("font-weight-bold text-sm")
+        #                 response_label = ui.label("").classes("text-body2")
 
-        # Stream response
-        full_response = ""
-        async for chunk in self.chatbot.stream_response(query, self.session_id):
-            full_response += chunk
-            response_label.text = full_response
-            await asyncio.sleep(0.05)
+        # # Stream response
+        # full_response = ""
+        # async for chunk in self.chatbot.stream_response(query, self.session_id):
+        #     full_response += chunk
+        #     response_label.text = full_response
+        #     await asyncio.sleep(0.05)
 
         self.results_area.scroll_to(percent=1)
+
+        # intent가 보고서 생성이면, PDF 다운로드 버튼 표시
+        if self.selected_options.get("intent") == "report_generation":
+            with self.results_area:
+                ui.separator().classes("my-2")
+                ui.label("Report ready. You can download a PDF version.").classes("text-body2")
+                ui.button("⬇️ Download PDF", on_click=self._download_pdf).props("color=primary")
+
+    async def _download_pdf(self) -> None:
+        try:
+            # PDF 생성 (서비스 호출)
+            pdf_path = await generate_esg_pdf(self.db, cmp_num=self.cmp_num, options=self.selected_options)
+            # NiceGUI 다운로드
+            ui.download(pdf_path)
+        except Exception as e:
+            ui.notify(f"PDF 생성 중 오류: {e}", type='negative')
+
+
 
     # Quick action methods
     async def _quick_report(self) -> None:

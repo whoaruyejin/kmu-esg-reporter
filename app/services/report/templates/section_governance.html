@@ -1,0 +1,21 @@
+<!-- app/templates/reports/esg/section_governance.html -->
+<section>
+  <h2>Governance — Overview</h2>
+  <div class="grid">
+    {% for k,v in section.metrics.overview.items() %}
+      <div class="card"><strong>{{ k }}</strong><br/>{{ v }}</div>
+    {% endfor %}
+  </div>
+</section>
+
+<div class="page-break"></div>
+
+<section>
+  <h2>Governance — Details</h2>
+  <div class="card"><strong>Board</strong>
+    <ul>{% for b in section.metrics.board %}<li>{{ b }}</li>{% endfor %}</ul>
+  </div>
+  <div class="card"><strong>Policies</strong>
+    <ul>{% for p in section.metrics.policies %}<li>{{ p }}</li>{% endfor %}</ul>
+  </div>
+</section>

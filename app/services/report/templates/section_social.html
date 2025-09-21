@@ -1,0 +1,21 @@
+<!-- app/templates/reports/esg/section_social.html -->
+<section>
+  <h2>Social — Overview</h2>
+  <div class="grid">
+    {% for k,v in section.metrics.overview.items() %}
+      <div class="card"><strong>{{ k }}</strong><br/>{{ v }}</div>
+    {% endfor %}
+  </div>
+</section>
+
+<div class="page-break"></div>
+
+<section>
+  <h2>Social — Details</h2>
+  <div class="card"><strong>Diversity</strong>
+    <ul>{% for d in section.metrics.diversity %}<li>{{ d }}</li>{% endfor %}</ul>
+  </div>
+  <div class="card"><strong>Safety</strong>
+    <ul>{% for s in section.metrics.safety %}<li>{{ s }}</li>{% endfor %}</ul>
+  </div>
+</section>

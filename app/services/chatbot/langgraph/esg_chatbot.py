@@ -503,3 +503,60 @@ ESG 분석과 보고서 생성을 위해 먼저 회사를 선택해 주세요.
             for char in error_message:
                 yield char
                 await asyncio.sleep(0.01)
+
+# --- PDF Export Helpers -------------------------------------------------
+
+    def get_latest_report(self, cmp_num: str) -> Optional[Report]:
+        """해당 회사의 최신 보고서(HTML)를 반환."""
+        try:
+            return (
+                self.db.query(Report)
+                .filter(Report.company_id == cmp_num)
+                .order_by(Report.created_at.desc())
+                .first()
+            )
+        except Exception as e:
+            logger.error(f"get_latest_report error: {e}")
+            return None
+
+
+    def export_report_to_pdf(self, report_id: Optional[int] = None, out_dir: str = "exports") -> Optional[str]:
+        """
+        최신(또는 지정) 보고서의 HTML을 PDF로 변환해 파일 경로를 반환.
+        WeasyPrint 사용. (pip install weasyprint)
+        """
+        try:
+            from weasyprint import HTML  # lazy import
+
+            os.makedirs(out_dir, exist_ok=True)
+
+            # report 선택
+            if report_id:
+                report = self.db.query(Report).filter(Report.id == report_id).first()
+            else:
+                report = self.get_latest_report(self.cmp_num)
+
+            if not report:
+                logger.warning("내보낼 보고서가 없습니다.")
+                return None
+            if (report.format or "").lower() != "html" or not report.content:
+                logger.warning("보고서 포맷이 HTML이 아니거나 내용이 비어있습니다.")
+                return None
+
+            # 파일명
+            safe_title = (report.title or "ESG_Report").replace("/", "_").replace("\\", "_")
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            pdf_path = os.path.join(out_dir, f"{safe_title}_{ts}.pdf")
+
+            # HTML -> PDF 변환
+            HTML(string=report.content, base_url=os.getcwd()).write_pdf(pdf_path)
+
+            # DB에 file_path 반영 (선택)
+            report.file_path = pdf_path
+            report.file_size = os.path.getsize(pdf_path)
+            self.db.commit()
+
+            return pdf_path
+        except Exception as e:
+            logger.error(f"export_report_to_pdf error: {e}")
+            return None

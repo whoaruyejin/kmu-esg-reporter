@@ -1,0 +1,33 @@
+<!-- app/templates/reports/esg/section_environment.html -->
+<section>
+  <h2>Environmental — Overview</h2>
+  <div class="grid">
+    {% for k,v in section.metrics.overview.items() %}
+      <div class="card">
+        <strong>{{ k }}</strong><br/>{{ v }}
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+<div class="page-break"></div>
+
+<section>
+  <h2>Environmental — Details</h2>
+  <div class="card">
+    <strong>Trends</strong>
+    <ul>
+      {% for item in section.metrics.trends %}
+        <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="card">
+    <strong>Actions</strong>
+    <ul>
+      {% for a in section.metrics.actions %}
+        <li>{{ a }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
