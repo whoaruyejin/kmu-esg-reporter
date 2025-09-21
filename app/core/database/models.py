@@ -86,52 +86,6 @@ class ESGData:
     """Dummy ESGData for backward compatibility."""
     pass
 
-
-class CmpInfo(Base):
-    """회사 기본 정보 테이블 - CMP_INFO"""
-    
-    __tablename__ = "cmp_info"
-    
-    cmp_num = Column(String(10), primary_key=True)
-    cmp_nm = Column(String(100), nullable=False)
-    cmp_industry = Column(String(20))
-    cmp_sector = Column(String(20))
-    cmp_addr = Column(String(200))
-    cmp_extemp = Column(Integer)
-    cmp_ethics_yn = Column(String(1))
-    cmp_comp_yn = Column(String(1))
-    
-    # Relationships
-    reports = relationship("Report", back_populates="company")
-    chat_sessions = relationship("ChatSession", back_populates="company")
-    data_import_logs = relationship("DataImportLog", back_populates="company")
-
-class EmpInfo(Base):
-    """직원 기본 정보 테이블 - EMP_INFO"""
-    
-    __tablename__ = "emp_info"
-    
-    emp_id = Column(Integer, primary_key=True)
-    emp_nm = Column(String(10), nullable=False)
-    emp_birth = Column(String(8))
-    emp_tel = Column(String(20))
-    emp_email = Column(String(20))
-    emp_join = Column(String(8))
-    emp_acident_cnt = Column(Integer)
-    emp_board_yn = Column(String(1))
-    emp_gender = Column(String(1))
-
-class Env(Base):
-    """환경현황 테이블 - ENV"""
-    
-    __tablename__ = "env"
-    
-    year = Column(Integer, primary_key=True)
-    energy_use = Column(Float)
-    green_use = Column(Float)
-    renewable_yn = Column(String(1))
-    renewable_ratio = Column(Numeric(5,3))
-
 # 기존 테이블들 - cmp_num FK로 수정
 class Report(Base):
     """Generated ESG reports."""
@@ -189,9 +143,14 @@ class CmpInfo(Base):
     cmp_extemp = Column(Integer)  # 사외 이사회 수
     cmp_ethics_yn = Column(String(1))  # 윤리경영 여부
     cmp_comp_yn = Column(String(1))  # 컴플라이언스 정책 여부
+    
+    # Relationships
+    reports = relationship("Report", back_populates="company")
+    chat_sessions = relationship("ChatSession", back_populates="company")
+    data_import_logs = relationship("DataImportLog", back_populates="company")
 
 
-class Employee(Base):
+class EmpInfo(Base):
     """Employee model for HR management."""
     
     __tablename__ = "emp_info"
@@ -212,7 +171,7 @@ class Employee(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-class Environment(Base):
+class Env(Base):
     """환경현황 테이블"""
     
     __tablename__ = "env"

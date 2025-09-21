@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from .base_page import BasePage
-from app.core.database.models import Environment
+from app.core.database.models import Env
 
 
 class EnvironmentPage(BasePage):
@@ -15,7 +15,7 @@ class EnvironmentPage(BasePage):
         # DB에서 환경 데이터 조회
         env_data = []
         if db_session:
-            db_envs = db_session.query(Environment).order_by(Environment.year.desc()).all()
+            db_envs = db_session.query(Env).order_by(Env.year.desc()).all()
             for env in db_envs:
                 env_data.append({
                     '년도': str(env.year),
@@ -126,7 +126,7 @@ class EnvironmentPage(BasePage):
 
                     if edit_mode and current_env:
                         # 기존 데이터 수정
-                        existing_env = db_session.query(Environment).filter_by(year=year).first()
+                        existing_env = db_session.query(Env).filter_by(year=year).first()
                         if existing_env:
                             existing_env.energy_use = energy_use
                             existing_env.green_use = green_use
@@ -139,13 +139,13 @@ class EnvironmentPage(BasePage):
                             ui.notify("수정할 데이터를 찾을 수 없습니다", type='negative')
                     else:
                         # 중복 체크
-                        existing = db_session.query(Environment).filter_by(year=year).first()
+                        existing = db_session.query(Env).filter_by(year=year).first()
                         if existing:
                             ui.notify(f"{year}년 데이터가 이미 존재합니다", type='negative')
                             return
 
                         # 신규 데이터 추가
-                        new_env = Environment(
+                        new_env = Env(
                             year=year,
                             energy_use=energy_use,
                             green_use=green_use,
@@ -177,7 +177,7 @@ class EnvironmentPage(BasePage):
             def confirm_delete():
                 if current_env:
                     year = current_env['year_pk']
-                    env_to_delete = db_session.query(Environment).filter_by(year=year).first()
+                    env_to_delete = db_session.query(Env).filter_by(year=year).first()
                     if env_to_delete:
                         db_session.delete(env_to_delete)
                         db_session.commit()

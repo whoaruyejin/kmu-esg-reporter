@@ -2,7 +2,7 @@ from nicegui import ui
 import datetime
 from sqlalchemy.orm import Session
 from typing import Optional
-from app.core.database.models import Employee, CmpInfo
+from app.core.database.models import EmpInfo, CmpInfo
 
 class HRPage:
     async def render(self, db_session: Session, cmp_num: Optional[str] = None):
@@ -30,7 +30,7 @@ class HRPage:
                     available_branches = ['서울지사']
                 
                 # 모든 직원 조회 (새 스키마에는 company_id가 없음)
-                db_employees = db_session.query(Employee).all()
+                db_employees = db_session.query(EmpInfo).all()
                 
                 # DB 데이터를 테이블 형식으로 변환
                 for emp in db_employees:
@@ -340,7 +340,7 @@ class HRPage:
                         try:
                             if edit_mode and current_employee:
                                 # 기존 직원 정보 수정
-                                existing_employee = db_session.query(Employee).filter_by(
+                                existing_employee = db_session.query(EmpInfo).filter_by(
                                     EMP_ID=int(current_employee.get('사번'))
                                 ).first()
                                 
@@ -370,7 +370,7 @@ class HRPage:
                                     return
                             else:
                                 # 신규 직원 등록
-                                new_employee = Employee(
+                                new_employee = EmpInfo(
                                     EMP_ID=int(inputs['사번'].value),
                                     EMP_NM=inputs['이름'].value,
                                     EMP_BIRTH=birth_date_formatted,

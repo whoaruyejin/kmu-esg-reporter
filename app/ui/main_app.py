@@ -212,7 +212,18 @@ class ESGReporterApp:
     
     def _navigate_to(self, page_name: str) -> None:
         """Navigate to a specific page."""
-        ui.navigate.to(f'/{page_name.replace("_", "-")}')
+        # 특별한 라우팅 매핑
+        route_mapping = {
+            'companies': '/companies',
+            'company_management': '/companies',
+            'hr': '/hr',
+            'environment': '/environment',
+            'chatbot': '/chatbot',
+            'dashboard': '/dashboard'
+        }
+        
+        route = route_mapping.get(page_name, f'/{page_name.replace("_", "-")}')
+        ui.navigate.to(route)
     
     def _on_company_change(self, e) -> None:
         """Handle company selection change."""
