@@ -15,7 +15,6 @@ __all__ = [
     "DataInputPage", 
     "VisualizationPage", 
     "ChatbotPage",
-    "CompanyManagementPage"
     "CompanyManagementPage",
     "HRPage",
     "EnvironmentPage"

@@ -16,13 +16,15 @@ try:
         DataInputPage, 
         # VisualizationPage, 
         ChatbotPage,
-        CompanyManagementPage
+        CompanyManagementPage,
+        HRPage,
+        EnvironmentPage
     )
 except ImportError as e:
     logging.error(f"Error importing pages: {e}")
     # Create dummy pages for development
     class DummyPage:
-        async def render(self, db_session, company_id=None):
+        async def render(self, db_session, cmp_num=None):  # company_id → cmp_num
             ui.label('Page not implemented yet')
     
     DashboardPage = DummyPage
@@ -30,26 +32,23 @@ except ImportError as e:
     # VisualizationPage = DummyPage
     ChatbotPage = DummyPage
     CompanyManagementPage = DummyPage
+    HRPage = DummyPage
+    EnvironmentPage = DummyPage
 
 logger = logging.getLogger(__name__)
-
 
 class ESGReporterApp:
     """Main ESG Reporter Application class."""
     
     def __init__(self):
-        self.erp_open = True  # ERP 메뉴 항상 열림 상태
-        self.current_company_id: Optional[int] = None
+        self.current_cmp_num: Optional[str] = None  # company_id → cmp_num, int → str
         self.current_page = "dashboard"
         self.db_session = None
         
-
         # Initialize database
         init_db()
         
-
         # Initialize pages
-        from app.ui.pages import HRPage, EnvironmentPage
         self.pages = {
             'dashboard': DashboardPage(),
             'data_input': DataInputPage(),
@@ -57,124 +56,159 @@ class ESGReporterApp:
             'chatbot': ChatbotPage(),
             'company_management': CompanyManagementPage(),
             'hr': HRPage(),
-            'environment': EnvironmentPage(),
+            'environment': EnvironmentPage()
         }
     
     def setup_app(self) -> None:
-
-            ui.label('ESG Reporter').classes('text-h5 font-weight-bold')
+        """Setup the main application."""
+        # Set app configuration
+        app.add_static_files('/static', str(Path(__file__).parent.parent.parent / 'static'))
+        ui.run_with.fast_reload = settings.app.DEBUG
+        
+        # Setup routing
+        self._setup_routing()
+    
+    def _setup_layout(self) -> None:
+        """Setup main application layout."""
+        # Header
+        with ui.header(elevated=True).classes('items-center justify-between'):
+            with ui.row().classes('items-center'):
+                ui.icon('eco', size='2rem').classes('text-green')
+                ui.label('ESG Reporter').classes('text-h5 font-weight-bold')
             
-            with ui.row().classes('items-center gap-4'):
-                              
-                # User menu
-                with ui.button(icon='account_circle').props('flat round'):
-                    with ui.menu():
-
-
-                        """Setup navigation menu."""
-                        nav_items = [
-                            {'icon': 'dashboard', 'label': 'Dashboard', 'page': 'dashboard'},
-                            # ERP 확장 메뉴는 별도 처리
-                            {'icon': 'chat', 'label': 'AI Chatbot', 'page': 'chatbot'},
-                        ]
+            # with ui.row().classes('items-center gap-4'):
+            #     # Company selector
+            #     self.company_select = ui.select(
+            #         options={},
+            #         label='Select Company',
+            #         on_change=self._on_company_change
+            #     ).classes('w-48')
+                
+            #     # User menu
+            #     with ui.button(icon='account_circle').props('flat round'):
+            #         with ui.menu():
+            #             ui.menu_item('Profile', lambda: ui.notify('Profile clicked'))
+            #             ui.menu_item('Settings', lambda: ui.notify('Settings clicked'))
+            #             ui.separator()
+            #             ui.menu_item('Logout', lambda: ui.notify('Logout clicked'))
         
-
-            # Dashboard
-            with ui.item(on_click=lambda: self._navigate_to('dashboard')):
-                with ui.item_section():
-                    ui.icon('dashboard')
-                with ui.item_section():
-                    ui.item_label('Dashboard')
-
-            # ERP 확장(expansion) 메뉴 (회사관리, HR, 환경관리 세로 표기, 항상 열림)
-            with ui.expansion('ERP', icon='input', value=self.erp_open, on_value_change=lambda e: setattr(self, 'erp_open', e.value)).classes('q-pa-none') as erp_expansion:
-                with ui.list().classes('q-pa-none'):
-                    with ui.item(on_click=lambda: (self._navigate_to('company_management'), setattr(self, 'erp_open', True))):
-                        with ui.item_section():
-                            ui.icon('business')
-                        with ui.item_section():
-                            ui.item_label('회사관리').classes('whitespace-nowrap')
-                    with ui.item(on_click=lambda: (self._navigate_to('hr'), setattr(self, 'erp_open', True))):
-                        with ui.item_section():
-                            ui.icon('people')
-                        with ui.item_section():
-                            ui.item_label('HR')
-                    with ui.item(on_click=lambda: (self._navigate_to('environment'), setattr(self, 'erp_open', True))):
-                        with ui.item_section():
-                            ui.icon('eco')
-                        with ui.item_section():
-                            ui.item_label('환경관리').classes('whitespace-nowrap')
-
-            # 나머지 메뉴
-            for item in nav_items:
-                if item['label'] not in ['Dashboard']:
-                        with ui.item(on_click=lambda page=item['page']: self._navigate_to(page)):
-                            with ui.item_section():
-                                ui.icon(item['icon'])
-                            with ui.item_section():
-                                if item['label'] == 'AI Chatbot':
-                                    ui.item_label(item['label']).classes('whitespace-nowrap')
-                                else:
-                                    ui.item_label(item['label'])
+        # Navigation drawer
+        with ui.left_drawer().classes('bg-blue-grey-1') as self.drawer:
+            self._setup_navigation()
         
+        # Main content area
+        self.content_container = ui.column().classes('w-full h-full p-4')
+        
+        # Footer
+        with ui.footer().classes('bg-blue-grey-1'):
+            ui.label(f'{settings.app.APP_NAME} v{settings.app.APP_VERSION}').classes('text-caption')
+    
+    def _setup_navigation(self) -> None:
+        """Setup navigation menu."""
+        # Dashboard
+        with ui.item(on_click=lambda: self._navigate_to('dashboard')):
+            with ui.item_section():
+                ui.icon('dashboard')
+            with ui.item_section():
+                ui.item_label('Dashboard')
+
+        # ERP 확장 메뉴 (회사관리, HR, 환경관리)
+        with ui.expansion('ERP', icon='input', value=True).classes('q-pa-none') as erp_expansion:
+            with ui.list().classes('q-pa-none'):
+                with ui.item(on_click=lambda: self._navigate_to('companies')):
+                    with ui.item_section():
+                        ui.icon('business')
+                    with ui.item_section():
+                        ui.item_label('회사관리').classes('whitespace-nowrap')
+                with ui.item(on_click=lambda: self._navigate_to('hr')):
+                    with ui.item_section():
+                        ui.icon('people')
+                    with ui.item_section():
+                        ui.item_label('HR').classes('whitespace-nowrap')
+                with ui.item(on_click=lambda: self._navigate_to('environment')):
+                    with ui.item_section():
+                        ui.icon('eco')
+                    with ui.item_section():
+                        ui.item_label('환경관리').classes('whitespace-nowrap')
+
+        # AI Chatbot
+        with ui.item(on_click=lambda: self._navigate_to('chatbot')):
+            with ui.item_section():
+                ui.icon('chat')
+            with ui.item_section():
+                ui.item_label('AI Chatbot')
+    
     def _setup_routing(self) -> None:
         """Setup page routing."""
-
-
+        @ui.page('/')
+        async def index():
+            self._setup_layout()
+            await self._load_page('dashboard')
+        
+        @ui.page('/dashboard')
+        async def dashboard():
+            self._setup_layout()
+            await self._load_page('dashboard')
+        
+        @ui.page('/data-input')
+        async def data_input():
+            self._setup_layout()
+            await self._load_page('data_input')
+        
+        @ui.page('/visualization')
         async def visualization():
             self._setup_layout()
             await self._load_page('visualization')
         
-
         @ui.page('/chatbot')
         async def chatbot():
             self._setup_layout()
             await self._load_page('chatbot')
-
-        # @ui.page('/companies')
-        # async def companies():
-        #     self._setup_layout()
-        #     await self._load_page('company_management')
-
+        
+        @ui.page('/companies')
+        async def companies():
+            self._setup_layout()
+            await self._load_page('company_management')
+        
         @ui.page('/hr')
         async def hr():
             self._setup_layout()
             await self._load_page('hr')
-
+        
         @ui.page('/environment')
         async def environment():
             self._setup_layout()
             await self._load_page('environment')
-
-        @ui.page('/company-management')
-        async def company_management():
-            self._setup_layout()
-            await self._load_page('company_management')
-
+    
     async def _load_page(self, page_name: str) -> None:
-            """Load a specific page."""
-            try:
-                self.current_page = page_name
-                
-                # Clear current content
-                self.content_container.clear()
-                
-                # Get database session
-                self.db_session = next(get_db())
-                
-                # Load page content
-                page = self.pages.get(page_name)
-                if page:
-                    with self.content_container:
-                        await page.render(self.db_session, self.current_company_id)
-                else:
-                    with self.content_container:
-                        ui.label(f'Page "{page_name}" not found').classes('text-h4 text-center')
-                        
-            except Exception as e:
-                logger.error(f"Error loading page {page_name}: {str(e)}")
+        """Load a specific page."""
+        try:
+            self.current_page = page_name
+            
+            # Clear current content
+            self.content_container.clear()
+            
+            # Get database session
+            self.db_session = next(get_db())
+            
+            # Load page content
+            page = self.pages.get(page_name)
+            if page:
                 with self.content_container:
-                    ui.label(f'Error loading page: {str(e)}').classes('text-negative')
+                    # 새로운 cmp_num 파라미터 사용
+                    await page.render(self.db_session, self.current_cmp_num)
+            else:
+                with self.content_container:
+                    ui.label(f'Page "{page_name}" not found').classes('text-h4 text-center')
+                    
+        except Exception as e:
+            logger.error(f"Error loading page {page_name}: {str(e)}")
+            with self.content_container:
+                ui.label(f'Error loading page: {str(e)}').classes('text-negative')
+                # 디버깅을 위한 상세 오류 정보
+                if settings.app.DEBUG:
+                    import traceback
+                    ui.label(f'Traceback: {traceback.format_exc()}').classes('text-caption text-negative')
     
     def _navigate_to(self, page_name: str) -> None:
         """Navigate to a specific page."""
@@ -182,7 +216,7 @@ class ESGReporterApp:
     
     def _on_company_change(self, e) -> None:
         """Handle company selection change."""
-        self.current_company_id = e.value
+        self.current_cmp_num = e.value  # company_id → cmp_num
         
         # Refresh current page with new company context
         asyncio.create_task(self._load_page(self.current_page))
@@ -190,21 +224,28 @@ class ESGReporterApp:
     async def refresh_company_list(self) -> None:
         """Refresh the company selection dropdown."""
         try:
-            from app.core.database.models import Company
+            # 새로운 모델 import
+            from app.core.database.models import CmpInfo
             
             db = next(get_db())
-            companies = db.query(Company).all()
+            companies = db.query(CmpInfo).all()  # Company → CmpInfo
             
-            options = {company.id: company.name for company in companies}
+            # cmp_num을 키로, cmp_nm을 값으로 사용
+            options = {company.cmp_num: company.cmp_nm for company in companies}
             self.company_select.options = options
             
-            if companies and not self.current_company_id:
-                self.current_company_id = companies[0].id
-                self.company_select.value = self.current_company_id
+            # 기본 회사 설정
+            if companies and not self.current_cmp_num:
+                self.current_cmp_num = companies[0].cmp_num
+                self.company_select.value = self.current_cmp_num
                 
         except Exception as e:
             logger.error(f"Error refreshing company list: {str(e)}")
-
+            # 개발용 기본 회사 설정
+            if settings.app.DEBUG:
+                self.company_select.options = {"6182618882": "국민AI 주식회사"}
+                self.current_cmp_num = "6182618882"
+                self.company_select.value = "6182618882"
 
 def create_app() -> None:
     """Create and configure the NiceGUI application."""
@@ -217,6 +258,9 @@ def create_app() -> None:
     # Create app instance
     esg_app = ESGReporterApp()
     esg_app.setup_app()
+    
+    # 앱 시작 시 회사 목록 로드
+    # asyncio.create_task(esg_app.refresh_company_list())
     
     # Start the application
     ui.run(
