@@ -94,103 +94,107 @@ class ESGDataProcessor:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_company_info(self, cmp_num: str) -> Optional[Dict[str, Any]]:
-        """회사 기본 정보 조회"""
-        company = self.db.query(CmpInfo).filter(CmpInfo.cmp_num == cmp_num).first()
+    def get_company_info(self, cmp_num: str, cmp_branch: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        cmp_branch가 주어지면 정확히 매칭, 없으면 cmp_num에 해당하는 첫 번째 지점(또는 최신 업데이트)을 대표로 사용.
+        """
+        q = self.db.query(CmpInfo).filter(CmpInfo.cmp_num == cmp_num)
+        if cmp_branch:
+            q = q.filter(CmpInfo.cmp_branch == cmp_branch)
+
+        # 최신 업데이트 순으로 하나 선택
+        company = q.order_by(CmpInfo.cmp_branch.asc()).first()
         if not company:
             return None
-            
-        return {
-            'cmp_num': company.cmp_num,
-            'cmp_nm': company.cmp_nm,
-            'cmp_industry': company.cmp_industry,
-            'cmp_sector': company.cmp_sector,
-            'cmp_addr': company.cmp_addr,
-            'cmp_extemp': company.cmp_extemp,
-            'cmp_ethics_yn': company.cmp_ethics_yn,
-            'cmp_comp_yn': company.cmp_comp_yn
-        }
 
-    def get_employee_data(self) -> pd.DataFrame:
-        """직원 데이터 조회"""
-        query = self.db.query(EmpInfo)
-        
-        data = []
-        for record in query.all():
-            data.append({
-                'emp_id': record.emp_id,
-                'emp_nm': record.emp_nm,
-                'emp_birth': record.emp_birth,
-                'emp_tel': record.emp_tel,
-                'emp_email': record.emp_email,
-                'emp_join': record.emp_join,
-                'emp_acident_cnt': record.emp_acident_cnt,
-                'emp_board_yn': record.emp_board_yn,
-                'emp_gender': record.emp_gender
+        return {
+            "cmp_num": company.cmp_num,
+            "cmp_branch": company.cmp_branch,
+            "cmp_nm": company.cmp_nm,
+            "cmp_industry": company.cmp_industry,
+            "cmp_sector": company.cmp_sector,
+            "cmp_addr": company.cmp_addr,
+            "cmp_extemp": company.cmp_extemp,
+            "cmp_ethics_yn": company.cmp_ethics_yn,
+            "cmp_comp_yn": company.cmp_comp_yn,
+        }
+    
+    def get_employee_data(self, cmp_num: Optional[str] = None) -> pd.DataFrame:
+        """
+        EMP_INFO 컬럼 대문자 사용.
+        cmp_num이 주어지면 EMP_COMP로 필터링.
+        """
+        q = self.db.query(EmpInfo)
+        if cmp_num:
+            q = q.filter(EmpInfo.EMP_COMP == cmp_num)
+
+        rows = []
+        for r in q.all():
+            rows.append({
+                "emp_id": r.EMP_ID,
+                "emp_nm": r.EMP_NM,
+                "emp_birth": r.EMP_BIRTH,
+                "emp_tel": r.EMP_TEL,
+                "emp_email": r.EMP_EMAIL,
+                "emp_join": r.EMP_JOIN,
+                "emp_acident_cnt": r.EMP_ACIDENT_CNT,
+                "emp_board_yn": r.EMP_BOARD_YN,
+                "emp_gender": r.EMP_GENDER,
+                "emp_endyn": r.EMP_ENDYN,
+                "emp_comp": r.EMP_COMP,
             })
-            
-        return pd.DataFrame(data)
+        return pd.DataFrame(rows)
 
     def get_environmental_data(self, start_year: Optional[int] = None, end_year: Optional[int] = None) -> pd.DataFrame:
-        """환경 데이터 조회"""
-        query = self.db.query(Env)
-        
-        if start_year:
-            query = query.filter(Env.year >= start_year)
-        if end_year:
-            query = query.filter(Env.year <= end_year)
-            
-        query = query.order_by(Env.year)
-        
-        data = []
-        for record in query.all():
-            data.append({
-                'year': record.year,
-                'energy_use': record.energy_use,
-                'green_use': record.green_use,
-                'renewable_yn': record.renewable_yn,
-                'renewable_ratio': float(record.renewable_ratio) if record.renewable_ratio else None
+        q = self.db.query(Env)
+        if start_year is not None:
+            q = q.filter(Env.year >= start_year)
+        if end_year is not None:
+            q = q.filter(Env.year <= end_year)
+        q = q.order_by(Env.year)
+
+        rows = []
+        for r in q.all():
+            rows.append({
+                "year": r.year,
+                "energy_use": r.energy_use,
+                "green_use": r.green_use,
+                "renewable_yn": r.renewable_yn,
+                "renewable_ratio": float(r.renewable_ratio) if r.renewable_ratio is not None else None,
             })
-            
-        return pd.DataFrame(data)
+        return pd.DataFrame(rows)
 
     def calculate_social_metrics(self, emp_df: pd.DataFrame) -> Dict[str, Any]:
-        """사회(Social) 지표 계산"""
         if emp_df.empty:
             return {}
-            
-        metrics = {}
-        
-        # 성별 다양성
-        gender_dist = emp_df['emp_gender'].value_counts()
+
+        metrics: Dict[str, Any] = {}
+
+        gender_dist = emp_df["emp_gender"].value_counts(dropna=False)
         total_employees = len(emp_df)
-        
-        metrics['diversity'] = {
-            'total_employees': total_employees,
-            'male_count': int(gender_dist.get('1', 0)),
-            'female_count': int(gender_dist.get('2', 0)),
-            'female_ratio': gender_dist.get('2', 0) / total_employees if total_employees > 0 else 0
+
+        metrics["diversity"] = {
+            "total_employees": int(total_employees),
+            "male_count": int(gender_dist.get("1", 0)),
+            "female_count": int(gender_dist.get("2", 0)),
+            "female_ratio": (gender_dist.get("2", 0) / total_employees) if total_employees else 0.0,
         }
-        
-        # 이사회 구성
-        board_members = emp_df[emp_df['emp_board_yn'] == 'Y']
-        board_gender_dist = board_members['emp_gender'].value_counts()
-        
-        metrics['board_composition'] = {
-            'total_board_members': len(board_members),
-            'male_board_members': int(board_gender_dist.get('1', 0)),
-            'female_board_members': int(board_gender_dist.get('2', 0)),
-            'female_board_ratio': board_gender_dist.get('2', 0) / len(board_members) if len(board_members) > 0 else 0
+
+        board = emp_df[emp_df["emp_board_yn"] == "Y"]
+        board_gender = board["emp_gender"].value_counts(dropna=False)
+        metrics["board_composition"] = {
+            "total_board_members": int(len(board)),
+            "male_board_members": int(board_gender.get("1", 0)),
+            "female_board_members": int(board_gender.get("2", 0)),
+            "female_board_ratio": (board_gender.get("2", 0) / len(board)) if len(board) else 0.0,
         }
-        
-        # 안전 지표
-        total_accidents = emp_df['emp_acident_cnt'].sum()
-        metrics['safety'] = {
-            'total_accidents': int(total_accidents),
-            'accident_rate': total_accidents / total_employees if total_employees > 0 else 0,
-            'zero_accident_employees': len(emp_df[emp_df['emp_acident_cnt'] == 0])
+
+        total_acc = float(emp_df["emp_acident_cnt"].fillna(0).sum())
+        metrics["safety"] = {
+            "total_accidents": int(total_acc),
+            "accident_rate": (total_acc / total_employees) if total_employees else 0.0,
+            "zero_accident_employees": int((emp_df["emp_acident_cnt"].fillna(0) == 0).sum()),
         }
-        
         return metrics
 
     def calculate_environmental_metrics(self, env_df: pd.DataFrame) -> Dict[str, Any]:
@@ -227,32 +231,35 @@ class ESGDataProcessor:
         
         return metrics
 
-    def generate_comprehensive_report(self, cmp_num: str) -> Dict[str, Any]:
-        """종합 ESG 보고서 생성"""
-        company_info = self.get_company_info(cmp_num)
+    def generate_comprehensive_report(self, cmp_num: str, cmp_branch: Optional[str] = None) -> Dict[str, Any]:
+        company_info = self.get_company_info(cmp_num, cmp_branch=cmp_branch)
         if not company_info:
-            return {'error': f'회사 정보를 찾을 수 없습니다: {cmp_num}'}
-        
-        emp_df = self.get_employee_data()
+            return {"error": f"회사 정보를 찾을 수 없습니다: {cmp_num} / {cmp_branch or '-'}"}
+
+        emp_df = self.get_employee_data(cmp_num=cmp_num)
         env_df = self.get_environmental_data()
-        
-        # 각 영역별 지표 계산
-        social_metrics = self.calculate_social_metrics(emp_df)
-        environmental_metrics = self.calculate_environmental_metrics(env_df)
-        governance_metrics = self.calculate_governance_metrics(company_info, emp_df)
-        
+
+        social = self.calculate_social_metrics(emp_df)
+        env = self.calculate_environmental_metrics(env_df)
+        gov = self.calculate_governance_metrics(company_info, emp_df)
+
+        data_summary = {
+            "employee_count": int(len(emp_df)),
+            "environmental_data_years": int(len(env_df)),
+            "latest_env_year": int(env_df["year"].max()) if not env_df.empty else None,
+        }
+
+        # report_download.py가 summary 키를 기대하므로 alias도 제공
         return {
-            'company_info': company_info,
-            'report_generated_at': datetime.now().isoformat(),
-            'data_summary': {
-                'employee_count': len(emp_df),
-                'environmental_data_years': len(env_df)
+            "company_info": company_info,
+            "report_generated_at": datetime.now().isoformat(),
+            "data_summary": data_summary,
+            "summary": data_summary,  # <--- alias
+            "esg_metrics": {
+                "environmental": env,
+                "social": social,
+                "governance": gov,
             },
-            'esg_metrics': {
-                'environmental': environmental_metrics,
-                'social': social_metrics,
-                'governance': governance_metrics
-            }
         }
 
     # 하위 호환성을 위한 메서드
