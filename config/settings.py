@@ -1,6 +1,7 @@
 """Configuration settings for the ESG Reporter application."""
 
 import os
+from typing import TypedDict
 from typing import Optional
 try:
     from pydantic import BaseSettings, Field

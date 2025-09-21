@@ -84,7 +84,7 @@ class HRPage:
                 new_row['사업장'] = company_id if company_id else '서울공장'
                 hr_data.append(new_row)
                 table.update()
-                dialog.close()
+                dialog.close() 
                 ui.notify(f"{new_row['이름']} 님 추가 완료 ✅", type='positive')
 
             with ui.row().classes('justify-end mt-4 gap-2'):

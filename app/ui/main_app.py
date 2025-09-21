@@ -36,74 +36,58 @@ logger = logging.getLogger(__name__)
 
 class ESGReporterApp:
     """Main ESG Reporter Application class."""
+    
     def __init__(self):
         self.erp_open = True  # ERP 메뉴 항상 열림 상태
         self.current_company_id: Optional[int] = None
         self.current_page = "dashboard"
         self.db_session = None
+        
 
         # Initialize database
         init_db()
+        
 
         # Initialize pages
         from app.ui.pages import HRPage, EnvironmentPage
         self.pages = {
             'dashboard': DashboardPage(),
             'data_input': DataInputPage(),
+            'visualization': VisualizationPage(),
             # 'visualization': VisualizationPage(),
             'chatbot': ChatbotPage(),
+            'company_management': CompanyManagementPage()
             'company_management': CompanyManagementPage(),
             'hr': HRPage(),
             'environment': EnvironmentPage(),
         }
     
     def setup_app(self) -> None:
-        """Setup the main application."""
-        # Set app configuration
-        app.add_static_files('/static', str(Path(__file__).parent.parent.parent / 'static'))
-        ui.run_with.fast_reload = settings.app.DEBUG
-        
-        # Setup main layout
-        # self._setup_layout()
-        
-        # Setup routing
-        self._setup_routing()
-    
-    def _setup_layout(self) -> None:
-        """Setup main application layout."""
-        # Header
-        with ui.header(elevated=True).classes('items-center justify-between'):
-            with ui.row().classes('items-center'):
-                ui.icon('eco', size='2rem').classes('text-green')
+@ -75,13 +78,6 @@ class ESGReporterApp:
                 ui.label('ESG Reporter').classes('text-h5 font-weight-bold')
             
             with ui.row().classes('items-center gap-4'):
+                # Company selector
+                self.company_select = ui.select(
+                    options={},
+                    label='Select Company',
+                    on_change=self._on_company_change
+                ).classes('w-48')
+                
                 # User menu
                 with ui.button(icon='account_circle').props('flat round'):
                     with ui.menu():
-                        ui.menu_item('Profile', lambda: ui.notify('Profile clicked'))
-                        ui.menu_item('Settings', lambda: ui.notify('Settings clicked'))
-                        ui.separator()
-                        ui.menu_item('Logout', lambda: ui.notify('Logout clicked'))
-        
-        # Navigation drawer
-        with ui.left_drawer().classes('bg-blue-grey-1') as self.drawer:
-            self._setup_navigation()
-        
-        # Main content area
-        self.content_container = ui.column().classes('w-full h-full p-4')
-        
-        # Footer
-        with ui.footer().classes('bg-blue-grey-1'):
-            ui.label(f'{settings.app.APP_NAME} v{settings.app.APP_VERSION}').classes('text-caption')
-    
-    def _setup_navigation(self) -> None:
+@ -105,18 +101,47 @@ class ESGReporterApp:
         """Setup navigation menu."""
         nav_items = [
             {'icon': 'dashboard', 'label': 'Dashboard', 'page': 'dashboard'},
+            {'icon': 'input', 'label': 'Data Input', 'page': 'data_input'},
+            {'icon': 'analytics', 'label': 'Visualization', 'page': 'visualization'},
             # ERP 확장 메뉴는 별도 처리
             {'icon': 'chat', 'label': 'AI Chatbot', 'page': 'chatbot'},
+            {'icon': 'business', 'label': 'Companies', 'page': 'company_management'},
         ]
+        
 
         # Dashboard
         with ui.item(on_click=lambda: self._navigate_to('dashboard')):
@@ -133,6 +117,11 @@ class ESGReporterApp:
 
         # 나머지 메뉴
         for item in nav_items:
+            with ui.item(on_click=lambda page=item['page']: self._navigate_to(page)):
+                with ui.item_section():
+                    ui.icon(item['icon'])
+                with ui.item_section():
+                    ui.item_label(item['label'])
             if item['label'] not in ['Dashboard']:
                 with ui.item(on_click=lambda page=item['page']: self._navigate_to(page)):
                     with ui.item_section():
@@ -145,30 +134,19 @@ class ESGReporterApp:
     
     def _setup_routing(self) -> None:
         """Setup page routing."""
-        @ui.page('/')
-        async def index():
-            self._setup_layout()
-            await self._load_page('dashboard')
-        
-        @ui.page('/dashboard')
-        async def dashboard():
-            self._setup_layout()
-            await self._load_page('dashboard')
-        
-        @ui.page('/data-input')
-        async def data_input():
-            self._setup_layout()
-            await self._load_page('data_input')
-        
-        @ui.page('/visualization')
+@ -139,90 +164,105 @@
         async def visualization():
             self._setup_layout()
             await self._load_page('visualization')
+        
 
         @ui.page('/chatbot')
         async def chatbot():
             self._setup_layout()
             await self._load_page('chatbot')
+        
+        @ui.page('/companies')
+        async def companies():
 
         # @ui.page('/companies')
         # async def companies():
