@@ -1,8 +1,10 @@
-"""Environment management page with database integration."""
+"""Environment management page with compact search filter UI + 신규등록 + 엑셀 업로드."""
 
 from nicegui import ui
 from sqlalchemy.orm import Session
 from typing import Optional
+import pandas as pd
+import io
 
 from .base_page import BasePage
 from app.core.database.models import Env
@@ -10,9 +12,11 @@ from app.core.database.models import Env
 
 class EnvironmentPage(BasePage):
     async def render(self, db_session: Session, company_num: Optional[str] = None) -> None:
-        ui.label('🌱 환경관리').classes('text-2xl font-bold text-blue-600 mb-4')
+        ui.label('🌱 환경관리').classes('text-xl font-bold text-blue-600 mb-4')
 
-        # DB에서 환경 데이터 조회
+        # =======================
+        # DB 데이터 조회
+        # =======================
         env_data = []
         if db_session:
             db_envs = db_session.query(Env).order_by(Env.year.desc()).all()
@@ -23,11 +27,13 @@ class EnvironmentPage(BasePage):
                     '온실가스 배출량': f"{env.green_use:,.2f}" if env.green_use else '0.00',
                     '재생에너지 사용여부': env.renewable_yn or 'N',
                     '재생에너지 비율': f"{(env.renewable_ratio * 100):,.1f}" if env.renewable_ratio else '0.0',
-                    'year_pk': env.year,  # PK용
-                    'actions': '수정/삭제'  # 액션 컬럼
+                    'year_pk': env.year,
+                    'actions': '수정/삭제'
                 })
 
+        # =======================
         # 테이블 컬럼 정의
+        # =======================
         columns = [
             {'name': '년도', 'label': '년도', 'field': '년도', 'align': 'center'},
             {'name': '에너지 사용량', 'label': '에너지 사용량(MWh)', 'field': '에너지 사용량', 'align': 'center'},
@@ -37,181 +43,232 @@ class EnvironmentPage(BasePage):
             {'name': 'actions', 'label': '수정/삭제', 'field': 'actions', 'align': 'center'},
         ]
 
-        # 테이블 생성
-        table = ui.table(columns=columns, rows=env_data, row_key='year_pk').classes(
+        # =======================
+        # 검색 / 필터 UI
+        # =======================
+        original_env_data = env_data.copy()
+        filtered_env_data = env_data.copy()
+
+        def apply_filters():
+            nonlocal filtered_env_data
+            filtered_env_data = original_env_data.copy()
+
+            if year_from_input.value:
+                filtered_env_data = [r for r in filtered_env_data if int(r['년도']) >= year_from_input.value]
+            if year_to_input.value:
+                filtered_env_data = [r for r in filtered_env_data if int(r['년도']) <= year_to_input.value]
+
+            if renewable_select.value and renewable_select.value != '전체':
+                filtered_env_data = [r for r in filtered_env_data if r['재생에너지 사용여부'] == renewable_select.value]
+
+            if energy_min_input.value:
+                filtered_env_data = [r for r in filtered_env_data if float(r['에너지 사용량'].replace(',', '')) >= energy_min_input.value]
+            if energy_max_input.value:
+                filtered_env_data = [r for r in filtered_env_data if float(r['에너지 사용량'].replace(',', '')) <= energy_max_input.value]
+
+            if green_min_input.value:
+                filtered_env_data = [r for r in filtered_env_data if float(r['온실가스 배출량'].replace(',', '')) >= green_min_input.value]
+            if green_max_input.value:
+                filtered_env_data = [r for r in filtered_env_data if float(r['온실가스 배출량'].replace(',', '')) <= green_max_input.value]
+
+            if ratio_min_input.value:
+                filtered_env_data = [r for r in filtered_env_data if float(r['재생에너지 비율']) >= ratio_min_input.value]
+            if ratio_max_input.value:
+                filtered_env_data = [r for r in filtered_env_data if float(r['재생에너지 비율']) <= ratio_max_input.value]
+
+            table.rows = filtered_env_data
+            table.update()
+            result_count.text = f'검색 결과: {len(filtered_env_data)}건'
+
+        def reset_filters():
+            year_from_input.set_value(None)
+            year_to_input.set_value(None)
+            renewable_select.set_value('전체')
+            energy_min_input.set_value(None)
+            energy_max_input.set_value(None)
+            green_min_input.set_value(None)
+            green_max_input.set_value(None)
+            ratio_min_input.set_value(None)
+            ratio_max_input.set_value(None)
+
+            table.rows = original_env_data
+            table.update()
+            result_count.text = f'검색 결과: {len(original_env_data)}건'
+
+        # =======================
+        # 검색 UI 카드
+        # =======================
+        with ui.card().classes('w-full p-2 mb-4 rounded-xl shadow-sm bg-gray-50 text-xs'):
+            with ui.row().classes('items-center justify-between mb-2'):
+                with ui.row().classes('items-center gap-1'):
+                    ui.icon('tune', size='1rem').classes('text-blue-600')
+                    ui.label('검색 필터').classes('text-sm font-semibold text-gray-700')
+                result_count = ui.label(f'검색 결과: {len(env_data)}건').classes('text-xs text-gray-500')
+
+            uniform_width = 'w-24 h-7 text-xs'
+
+            with ui.row().classes('items-center gap-4 flex-wrap'):
+                ui.label('년도').classes('text-xs font-medium text-gray-600')
+                with ui.row().classes('items-center gap-1'):
+                    year_from_input = ui.number(placeholder='시작', precision=0, min=2000, max=2100) \
+                        .props('outlined dense clearable').classes(uniform_width)
+                    ui.label('~').classes('text-gray-400 text-xs')
+                    year_to_input = ui.number(placeholder='끝', precision=0, min=2000, max=2100) \
+                        .props('outlined dense clearable').classes(uniform_width)
+
+                ui.label('재생에너지').classes('text-xs font-medium text-gray-600')
+                renewable_select = ui.select(['전체', 'Y', 'N'], value='전체') \
+                    .props('outlined dense clearable').classes('w-28 h-7 text-xs')
+
+                ui.label('에너지(MWh)').classes('text-xs font-medium text-gray-600')
+                with ui.row().classes('items-center gap-1'):
+                    energy_min_input = ui.number(placeholder='최소', precision=0, min=0) \
+                        .props('outlined dense clearable').classes(uniform_width)
+                    ui.label('~').classes('text-gray-400 text-xs')
+                    energy_max_input = ui.number(placeholder='최대', precision=0, min=0) \
+                        .props('outlined dense clearable').classes(uniform_width)
+
+                ui.label('온실가스(tCO2e)').classes('text-xs font-medium text-gray-600')
+                with ui.row().classes('items-center gap-1'):
+                    green_min_input = ui.number(placeholder='최소', precision=0, min=0) \
+                        .props('outlined dense clearable').classes(uniform_width)
+                    ui.label('~').classes('text-gray-400 text-xs')
+                    green_max_input = ui.number(placeholder='최대', precision=0, min=0) \
+                        .props('outlined dense clearable').classes(uniform_width)
+
+                ui.label('재생비율(%)').classes('text-xs font-medium text-gray-600')
+                with ui.row().classes('items-center gap-1'):
+                    ratio_min_input = ui.number(placeholder='최소', precision=1, min=0, max=100) \
+                        .props('outlined dense clearable').classes(uniform_width)
+                    ui.label('~').classes('text-gray-400 text-xs')
+                    ratio_max_input = ui.number(placeholder='최대', precision=1, min=0, max=100) \
+                        .props('outlined dense clearable').classes(uniform_width)
+
+                # 버튼들을 오른쪽으로 밀어서 배치
+                with ui.row().classes('items-center gap-2 ml-auto'):
+                    ui.button('검색', color='primary', on_click=apply_filters) \
+                        .classes('rounded-md shadow-sm px-4 py-2 text-sm font-medium')
+                    ui.button('초기화', color='secondary', on_click=reset_filters) \
+                        .classes('rounded-md shadow-sm px-4 py-2 text-sm font-medium')
+
+        # =======================
+        # (아래 생략: 신규등록 다이얼로그, 엑셀 업로드 다이얼로그, 테이블, 버튼)
+        # =======================
+
+
+        # =======================
+        # 신규등록 다이얼로그
+        # =======================
+        with ui.dialog() as dialog, ui.card().classes('p-4 w-[400px]'):
+            dialog_title = ui.label('📝 신규 환경 데이터 추가').classes('text-base font-semibold text-gray-700 mb-3')
+
+            inputs = {}
+            inputs['년도'] = ui.number(label='년도', precision=0, min=2000, max=2100).classes('w-full mb-2')
+            inputs['에너지 사용량'] = ui.number(label='에너지 사용량(MWh)', precision=2, min=0).classes('w-full mb-2')
+            inputs['온실가스 배출량'] = ui.number(label='온실가스 배출량(tCO2e)', precision=2, min=0).classes('w-full mb-2')
+            inputs['재생에너지 사용여부'] = ui.select(['Y', 'N'], value='N', label='재생에너지 사용여부').classes('w-full mb-2')
+            inputs['재생에너지 비율'] = ui.number(label='재생에너지 비율(%)', precision=1, min=0, max=100).classes('w-full mb-2')
+
+            def save_env():
+                try:
+                    new_env = Env(
+                        year=int(inputs['년도'].value),
+                        energy_use=float(inputs['에너지 사용량'].value),
+                        green_use=float(inputs['온실가스 배출량'].value),
+                        renewable_yn=inputs['재생에너지 사용여부'].value,
+                        renewable_ratio=float(inputs['재생에너지 비율'].value) / 100,
+                    )
+                    db_session.add(new_env)
+                    db_session.commit()
+                    ui.notify(f"{new_env.year}년 데이터가 저장되었습니다 ✅", type='positive')
+                    dialog.close()
+                except Exception as e:
+                    db_session.rollback()
+                    ui.notify(f"저장 실패: {str(e)}", type='negative')
+
+            with ui.row().classes('justify-end gap-2 mt-3'):
+                ui.button('저장', on_click=save_env, color='primary').classes('px-4 py-1 text-sm')
+                ui.button('취소', on_click=dialog.close, color='secondary').classes('px-4 py-1 text-sm')
+
+        def open_new_dialog():
+            dialog_title.text = '📝 신규 환경 데이터 추가'
+            for key, comp in inputs.items():
+                if hasattr(comp, "set_value"):
+                    comp.set_value(None)
+            dialog.open()
+
+        # =======================
+        # 엑셀 업로드 다이얼로그
+        # =======================
+        with ui.dialog() as excel_dialog, ui.card().classes('p-4 w-[600px]'):
+            ui.label('📥 환경 데이터 엑셀 업로드').classes('text-base font-bold text-green-700 mb-3')
+            upload_result = ui.label().classes('text-sm mb-2')
+            preview_data = []
+
+            def handle_upload(e):
+                nonlocal preview_data
+                try:
+                    content = e.content.read()
+                    df = pd.read_excel(io.BytesIO(content))
+                    df.columns = df.columns.str.strip()
+                    preview_data = df.to_dict(orient='records')
+                    ui.notify(f'✅ {len(preview_data)}건 로드됨', type='positive')
+                except Exception as err:
+                    ui.notify(f'엑셀 오류: {str(err)}', type='negative')
+
+            ui.upload(label='엑셀 파일 선택', auto_upload=True, on_upload=handle_upload) \
+                .props('accept=".xlsx,.xls"').classes('w-full mb-3')
+
+            def save_all():
+                try:
+                    for row in preview_data:
+                        new_env = Env(
+                            year=int(row['년도']),
+                            energy_use=float(row['에너지 사용량']),
+                            green_use=float(row['온실가스 배출량']),
+                            renewable_yn=row['재생에너지 사용여부'],
+                            renewable_ratio=float(row['재생에너지 비율']) / 100,
+                        )
+                        db_session.merge(new_env)
+                    db_session.commit()
+                    ui.notify('엑셀 데이터 저장 완료 ✅', type='positive')
+                    excel_dialog.close()
+                except Exception as err:
+                    db_session.rollback()
+                    ui.notify(f'엑셀 저장 오류: {str(err)}', type='negative')
+
+            with ui.row().classes('justify-end gap-2 mt-3'):
+                ui.button('저장', on_click=save_all, color='primary').classes('px-4 py-1 text-sm')
+                ui.button('취소', on_click=excel_dialog.close, color='secondary').classes('px-4 py-1 text-sm')
+
+        def open_excel_dialog():
+            excel_dialog.open()
+
+        # =======================
+        # 테이블
+        # =======================
+        table = ui.table(columns=columns, rows=filtered_env_data, row_key='year_pk').classes(
             'w-full text-center bordered dense flat rounded shadow-sm'
         ).props('table-header-class=bg-blue-200 text-black')
 
-        # 액션 버튼들을 테이블에 추가
         table.add_slot('body-cell-actions', '''
             <q-td key="actions" :props="props">
-                <q-btn 
-                    @click="$parent.$emit('edit_row', props.row)" 
-                    dense 
-                    round 
-                    flat 
-                    color="primary" 
-                    icon="edit"
-                    size="sm"
-                    class="q-mr-xs">
+                <q-btn @click="$parent.$emit('edit_row', props.row)" 
+                    dense round flat color="primary" icon="edit" size="sm" class="q-mr-xs">
                     <q-tooltip>수정</q-tooltip>
                 </q-btn>
-                <q-btn 
-                    @click="$parent.$emit('delete_row', props.row)" 
-                    dense 
-                    round 
-                    flat 
-                    color="negative" 
-                    icon="delete"
-                    size="sm">
+                <q-btn @click="$parent.$emit('delete_row', props.row)" 
+                    dense round flat color="negative" icon="delete" size="sm">
                     <q-tooltip>삭제</q-tooltip>
                 </q-btn>
             </q-td>
         ''')
 
         # =======================
-        # 환경 데이터 등록/수정 다이얼로그
+        # 액션 버튼 (테이블 아래)
         # =======================
-        edit_mode = False
-        current_env = None
-
-        with ui.dialog() as dialog, ui.card().classes('p-6 w-[500px]'):
-            dialog_title = ui.label('📝 신규 환경 데이터 추가').classes('text-lg font-semibold text-gray-700 mb-4')
-
-            inputs = {}
-
-            def setup_dialog(env_data=None):
-                nonlocal edit_mode, current_env
-                edit_mode = env_data is not None
-                current_env = env_data
-                
-                if edit_mode:
-                    dialog_title.text = '📝 환경 데이터 수정'
-                    # 기존 데이터로 폼 채우기
-                    inputs['년도'].set_value(env_data.get('년도', ''))
-                    inputs['에너지 사용량'].set_value(float(env_data.get('에너지 사용량', '0').replace(',', '')))
-                    inputs['온실가스 배출량'].set_value(float(env_data.get('온실가스 배출량', '0').replace(',', '')))
-                    inputs['재생에너지 사용여부'].set_value(env_data.get('재생에너지 사용여부', 'N'))
-                    inputs['재생에너지 비율'].set_value(float(env_data.get('재생에너지 비율', '0')))
-                    inputs['년도'].disable()  # 수정 시 년도는 변경 불가
-                else:
-                    dialog_title.text = '📝 신규 환경 데이터 추가'
-                    # 폼 초기화
-                    inputs['년도'].set_value('')
-                    inputs['에너지 사용량'].set_value(0)
-                    inputs['온실가스 배출량'].set_value(0)
-                    inputs['재생에너지 사용여부'].set_value('N')
-                    inputs['재생에너지 비율'].set_value(0)
-                    inputs['년도'].enable()
-
-            def field_input(label, component):
-                return component.props('outlined dense').classes('w-full mb-2').props(f'label={label}')
-
-            def field_select(label, component):
-                return component.props('outlined dense').classes('w-full mb-2').props(f'label={label}')
-
-            inputs['년도'] = field_input('년도 (YYYY)', ui.number(precision=0, min=2000, max=2100))
-            inputs['에너지 사용량'] = field_input('에너지 사용량(MWh)', ui.number(precision=2, min=0))
-            inputs['온실가스 배출량'] = field_input('온실가스 배출량(tCO2e)', ui.number(precision=2, min=0))
-            inputs['재생에너지 사용여부'] = field_select('재생에너지 사용여부', ui.select(['Y', 'N'], value='N'))
-            inputs['재생에너지 비율'] = field_input('재생에너지 비율(%)', ui.number(precision=1, min=0, max=100))
-
-            def save_env():
-                try:
-                    year = int(inputs['년도'].value)
-                    energy_use = float(inputs['에너지 사용량'].value)
-                    green_use = float(inputs['온실가스 배출량'].value)
-                    renewable_yn = inputs['재생에너지 사용여부'].value
-                    renewable_ratio = float(inputs['재생에너지 비율'].value) / 100  # 백분율을 소수로 변환
-
-                    if edit_mode and current_env:
-                        # 기존 데이터 수정
-                        existing_env = db_session.query(Env).filter_by(year=year).first()
-                        if existing_env:
-                            existing_env.energy_use = energy_use
-                            existing_env.green_use = green_use
-                            existing_env.renewable_yn = renewable_yn
-                            existing_env.renewable_ratio = renewable_ratio
-                            
-                            db_session.commit()
-                            ui.notify(f"{year}년 환경 데이터가 수정되었습니다 ✅", type='positive')
-                        else:
-                            ui.notify("수정할 데이터를 찾을 수 없습니다", type='negative')
-                    else:
-                        # 중복 체크
-                        existing = db_session.query(Env).filter_by(year=year).first()
-                        if existing:
-                            ui.notify(f"{year}년 데이터가 이미 존재합니다", type='negative')
-                            return
-
-                        # 신규 데이터 추가
-                        new_env = Env(
-                            year=year,
-                            energy_use=energy_use,
-                            green_use=green_use,
-                            renewable_yn=renewable_yn,
-                            renewable_ratio=renewable_ratio
-                        )
-                        db_session.add(new_env)
-                        db_session.commit()
-                        ui.notify(f"{year}년 환경 데이터가 추가되었습니다 ✅", type='positive')
-
-                    dialog.close()
-                    ui.navigate.reload()
-                except Exception as e:
-                    ui.notify(f"저장 중 오류: {str(e)}", type='negative')
-                    if db_session:
-                        db_session.rollback()
-
-            with ui.row().classes('justify-end mt-4 gap-2'):
-                ui.button('저장', on_click=save_env, color='primary').classes('rounded-lg px-6')
-                ui.button('취소', on_click=dialog.close, color='negative').classes('rounded-lg px-6')
-
-        # =======================
-        # 삭제 확인 다이얼로그
-        # =======================
-        with ui.dialog() as delete_dialog, ui.card().classes('p-6'):
-            ui.label('🗑️ 데이터 삭제').classes('text-lg font-semibold text-red-600 mb-2')
-            delete_message = ui.label().classes('text-gray-700 mb-4')
-            
-            def confirm_delete():
-                if current_env:
-                    year = current_env['year_pk']
-                    env_to_delete = db_session.query(Env).filter_by(year=year).first()
-                    if env_to_delete:
-                        db_session.delete(env_to_delete)
-                        db_session.commit()
-                        ui.notify(f"{year}년 환경 데이터가 삭제되었습니다 ✅", type='positive')
-                        delete_dialog.close()
-                        ui.navigate.reload()
-                    else:
-                        ui.notify("삭제할 데이터를 찾을 수 없습니다", type='negative')
-
-            with ui.row().classes('justify-end gap-2'):
-                ui.button('삭제', on_click=confirm_delete, color='negative').classes('rounded-lg px-6')
-                ui.button('취소', on_click=delete_dialog.close, color='primary').classes('rounded-lg px-6')
-
-        # 테이블 이벤트 처리
-        def on_edit_row(e):
-            row_data = e.args
-            if row_data:
-                setup_dialog(row_data)
-                dialog.open()
-
-        def on_delete_row(e):
-            nonlocal current_env
-            row_data = e.args
-            if row_data:
-                current_env = row_data
-                delete_message.text = f"{row_data['년도']}년 환경 데이터를 정말 삭제하시겠습니까?"
-                delete_dialog.open()
-
-        table.on('edit_row', on_edit_row)
-        table.on('delete_row', on_delete_row)
-
-        # 신규등록 버튼
-        def open_new_dialog():
-            setup_dialog()
-            dialog.open()
-
-        ui.button('신규등록', on_click=open_new_dialog, color='blue-200').classes('mt-4 rounded-lg shadow-md')
+        with ui.row().classes('mt-3 gap-3'):
+            ui.button('신규등록', color='blue', on_click=open_new_dialog) \
+                .props('color=blue-200 text-color=black').classes('rounded-lg shadow-md')
+            ui.button('엑셀 일괄등록', color='green', on_click=open_excel_dialog) \
+                .props('color=green-200 text-color=black').classes('rounded-lg shadow-md')

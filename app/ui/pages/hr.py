@@ -1,5 +1,8 @@
 from nicegui import ui
 import datetime
+import pandas as pd
+import io
+from pathlib import Path
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.core.database.models import EmpInfo, CmpInfo
@@ -118,7 +121,100 @@ class HRPage:
             {'name': 'actions', 'label': '수정', 'field': 'actions', 'align': 'center'},
         ]
 
-        table = ui.table(columns=columns, rows=employees, row_key='사번').classes(
+        # =======================
+        # 검색 / 필터 UI
+        # =======================
+        original_employees = employees.copy()
+        filtered_employees = employees.copy()
+
+        def apply_filters():
+            nonlocal filtered_employees
+            filtered_employees = original_employees.copy()
+
+            # 지점 검색 (SELECT BOX)
+            if branch_input.value and branch_input.value != '전체':
+                filtered_employees = [r for r in filtered_employees if r['지점'] == branch_input.value]
+            
+            # 사번 검색
+            if empno_input.value:
+                filtered_employees = [r for r in filtered_employees if empno_input.value in str(r['사번'])]
+            
+            # 이름 검색
+            if name_input.value:
+                filtered_employees = [r for r in filtered_employees if name_input.value.upper() in r['이름'].upper()]
+            
+            # 입사일 범위 검색 (년도 기준)
+            if hire_year_from_input.value:
+                filtered_employees = [r for r in filtered_employees if r['입사년도'] and int(r['입사년도']) >= hire_year_from_input.value]
+            if hire_year_to_input.value:
+                filtered_employees = [r for r in filtered_employees if r['입사년도'] and int(r['입사년도']) <= hire_year_to_input.value]
+            
+            # 성별 필터
+            if gender_select.value and gender_select.value != '전체':
+                filtered_employees = [r for r in filtered_employees if r['성별'] == gender_select.value]
+
+            table.rows = filtered_employees
+            table.update()
+            result_count.text = f'검색 결과: {len(filtered_employees)}건'
+
+        def reset_filters():
+            branch_input.set_value('전체')
+            empno_input.set_value('')
+            name_input.set_value('')
+            hire_year_from_input.set_value(None)
+            hire_year_to_input.set_value(None)
+            gender_select.set_value('전체')
+
+            table.rows = original_employees
+            table.update()
+            result_count.text = f'검색 결과: {len(original_employees)}건'
+
+        # =======================
+        # 검색 UI 카드
+        # =======================
+        with ui.card().classes('w-full p-2 mb-4 rounded-xl shadow-sm bg-gray-50 text-xs'):
+            with ui.row().classes('items-center justify-between mb-2'):
+                with ui.row().classes('items-center gap-1'):
+                    ui.icon('tune', size='1rem').classes('text-blue-600')
+                    ui.label('검색 필터').classes('text-sm font-semibold text-gray-700')
+                result_count = ui.label(f'검색 결과: {len(employees)}건').classes('text-xs text-gray-500')
+
+            uniform_width = 'w-24 h-7 text-xs'
+
+            # row + wrap → 화면에 맞게 자동 줄바꿈
+            with ui.row().classes('items-center gap-4 flex-wrap'):
+                ui.label('지점').classes('text-xs font-medium text-gray-600')
+                # 사용 가능한 지점 목록에서 선택 (전체 옵션 추가)
+                branch_options = ['전체'] + available_branches
+                branch_input = ui.select(branch_options, value='전체') \
+                    .props('outlined dense clearable').classes('w-30 h-7 text-xs')
+
+                ui.label('사번').classes('text-xs font-medium text-gray-600')
+                empno_input = ui.input(placeholder='사번').props('outlined dense clearable').classes(uniform_width)
+
+                ui.label('이름').classes('text-xs font-medium text-gray-600')
+                name_input = ui.input(placeholder='이름').props('outlined dense clearable').classes(uniform_width)
+
+                ui.label('입사년도').classes('text-xs font-medium text-gray-600')
+                with ui.row().classes('items-center gap-1'):
+                    hire_year_from_input = ui.number(placeholder='시작년도', precision=0, min=1980, max=2030) \
+                        .props('outlined dense clearable').classes(uniform_width)
+                    ui.label('~').classes('text-gray-400 text-xs')
+                    hire_year_to_input = ui.number(placeholder='종료년도', precision=0, min=1980, max=2030) \
+                        .props('outlined dense clearable').classes(uniform_width)
+
+                ui.label('성별').classes('text-xs font-medium text-gray-600')
+                gender_select = ui.select(['전체', '남자', '여자'], value='전체') \
+                    .props('outlined dense clearable').classes('w-28 h-7 text-xs')
+
+                # 버튼들을 오른쪽으로 밀어서 배치
+                with ui.row().classes('items-center gap-2 ml-auto'):
+                    ui.button('검색', color='primary', on_click=apply_filters) \
+                        .classes('rounded-md shadow-sm px-4 py-2 text-sm font-medium')
+                    ui.button('초기화', color='secondary', on_click=reset_filters) \
+                        .classes('rounded-md shadow-sm px-4 py-2 text-sm font-medium')
+
+        table = ui.table(columns=columns, rows=filtered_employees, row_key='사번').classes(
             'w-full text-center bordered dense flat rounded shadow-sm'
         ).props(
              'table-header-class=bg-blue-200 text-white'
@@ -158,17 +254,16 @@ class HRPage:
                     birth_parts = employee_data.get('생년월일', '1990-01-01').split('-')
                     hire_parts = employee_data.get('입사일', '2025-01-01').split('-')
                     
-                    # 기존 직원의 지점 값을 유지, 하지만 수정 시에는 사용자 기본값(서울지사) 우선
-                    user_default_branch = "서울지사"  # 사용자 기본 지점
+                    # 기존 직원의 실제 지점 값을 사용 (수정 모드에서는 기존 값 유지)
+                    current_branch = employee_data.get('지점', '서울지사')
                     
-                    # available_branches에 서울지사가 있으면 서울지사를 기본값으로 사용
-                    if user_default_branch in available_branches:
-                        branch_value = user_default_branch
-                    else:
-                        # 서울지사가 없으면 available_branches의 첫 번째 값 사용
-                        branch_value = available_branches[0] if available_branches else '서울지사'
+                    # 현재 지점이 available_branches에 없으면 추가
+                    if current_branch not in available_branches:
+                        available_branches.append(current_branch)
+                        # 지점 select 옵션 업데이트
+                        inputs['지점'].options = available_branches
                     
-                    inputs['지점'].set_value(branch_value)
+                    inputs['지점'].set_value(current_branch)
                     inputs['사번'].set_value(employee_data.get('사번', ''))
                     inputs['이름'].set_value(employee_data.get('이름', ''))
                     inputs['생년'].set_value(birth_parts[0] if len(birth_parts) > 0 else '1990')
@@ -431,9 +526,10 @@ class HRPage:
                     if db_session:
                         db_session.rollback()
 
-            with ui.row().classes('justify-end mt-3 gap-2'):
-                ui.button('저장', on_click=add_employee, color='blue').classes('rounded-lg px-4 py-1')
-                ui.button('취소', on_click=dialog.close, color='red').classes('rounded-lg px-4 py-1')
+            # 버튼들
+            with ui.row().classes('justify-end mt-4 gap-3'):
+                ui.button('저장', on_click=add_employee).props('color=primary text-color=white').classes('px-6 py-2 rounded-lg')
+                ui.button('취소', on_click=dialog.close).props('color=negative text-color=white').classes('px-6 py-2 rounded-lg')
 
         # 수정 버튼 클릭 이벤트 처리
         def on_edit_row(e):
@@ -449,6 +545,411 @@ class HRPage:
             setup_dialog()  # 신규 등록 모드로 다이얼로그 설정
             dialog.open()
 
-        ui.button('신규등록', on_click=open_new_dialog, color='blue-200').classes('mt-3 rounded-lg shadow-md px-4 py-2')
-        
+        # 엑셀 일괄등록 버튼 추가
+        def open_excel_dialog():
+            excel_dialog.open()
+
+        # 버튼들을 가로로 배치 (회사관리와 동일)
+        with ui.row().classes('mt-4 gap-3'):
+            ui.button('신규등록', on_click=open_new_dialog) \
+                .props('color=blue-200 text-color=black').classes('rounded-lg shadow-md')
+            
+            ui.button('엑셀 일괄등록', on_click=open_excel_dialog) \
+                .props('color=green-200 text-color=black').classes('rounded-lg shadow-md')
+
+        # =======================
+        # 엑셀 일괄등록 다이얼로그
+        # =======================
+        with ui.dialog() as excel_dialog, ui.card().classes('p-6 w-[700px]'):
+            ui.label('📄 엑셀 일괄등록').classes('text-xl font-bold text-green-600 mb-4')
+            
+            # 엑셀 템플릿 안내
+            with ui.card().classes('p-4 mb-4 bg-blue-50'):
+                ui.label('📝 엑셀 파일 형식 안내').classes('text-lg font-bold text-blue-600')
+                # ui.label('• 첫 번째 행은 헤더로 사용됩니다.').classes('text-sm mt-2')
+                # ui.label('• 열 이름의 공백은 자동으로 제거됩니다. (예: "산재 발생 횟수" → "산재발생횟수")').classes('text-sm')
+                
+                # # 필수 열 안내
+                # ui.label('📄 필수 열 목록:').classes('text-sm font-bold mt-3')
+                # required_columns = [
+                #     '지점', '사번', '이름', '생년월일', '전화번호', '이메일',
+                #     '입사일', '산재발생횟수', '이사회여부', '성별', '재직여부'
+                # ]
+                # for i, col in enumerate(required_columns, 1):
+                #     ui.label(f'{i}. {col}').classes('text-sm ml-4')
+                
+                ui.label('⚠️ 생년월일과 입사일은 YYYY-MM-DD 형식으로 입력해주세요.').classes('text-sm text-orange-600 mt-2')
+                ui.label('⚠️ 성별은 "남자" 또는 "여자"로 입력해주세요.').classes('text-sm text-orange-600')
+                ui.label('⚠️ 이사회여부, 재직여부는 Y 또는 N으로 입력해주세요.').classes('text-sm text-orange-600')
+                ui.label('💡 열 이름에 공백이 있어도 자동으로 처리됩니다.').classes('text-sm text-blue-600 mt-1')
+            
+            # 엑셀 양식 다운로드 버튼
+            def download_template():
+                try:
+                    # 엑셀 양식 데이터 생성
+                    template_data = {
+                        '지점': ['서울지사', '구미지사'],
+                        '사번': ['1001', '1002'],
+                        '이름': ['홍길동', '김철수'],
+                        '생년월일': ['1990-01-15', '1985-05-20'],
+                        '전화번호': ['010-1234-5678', '010-9876-5432'],
+                        '이메일': ['hong@company.com', 'kim@company.com'],
+                        '입사일': ['2020-03-01', '2018-07-15'],
+                        '산재발생횟수': [0, 1],
+                        '이사회여부': ['N', 'Y'],
+                        '성별': ['남자', '남자'],
+                        '재직여부': ['Y', 'Y']
+                    }
+                    
+                    # DataFrame 생성
+                    template_df = pd.DataFrame(template_data)
+                    
+                    # 메모리에 엑셀 파일 생성
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        template_df.to_excel(writer, sheet_name='직원정보양식', index=False)
+                    
+                    # 파일 다운로드
+                    output.seek(0)
+                    ui.download(output.getvalue(), filename='직원정보_업로드양식.xlsx')
+                    ui.notify('✅ 엑셀 양식이 다운로드되었습니다', type='positive')
+                    
+                except Exception as e:
+                    ui.notify(f'❌ 양식 다운로드 오류: {str(e)}', type='negative')
+            
+            with ui.row().classes('w-full justify-center mb-4'):
+                ui.button('📥 엑셀 양식 다운로드', on_click=download_template) \
+                    .props('color=blue-200 text-color=black').classes('rounded-lg shadow-md px-4 py-2')
+            
+            # 파일 업로드
+            upload_result = ui.label()
+            preview_data = []
+            preview_table = None
+            
+            def handle_upload(e):
+                nonlocal preview_data, preview_table
+                try:
+                    upload_result.text = '파일 처리 중...'
+                    upload_result.classes('text-blue-600')
+                    
+                    # 업로드된 파일 읽기
+                    content = e.content.read()
+                    
+                    # 엑셀 파일 파싱
+                    try:
+                        # 엑셀 파일 읽기 (첫 번째 시트)
+                        df = pd.read_excel(io.BytesIO(content), sheet_name=0)
+                        
+                        # 열 이름 정리 (모든 공백 제거)
+                        df.columns = df.columns.str.replace(' ', '').str.strip()
+                        
+                        # 필수 열 확인 (공백 제거된 버전)
+                        required_cols = ['지점', '사번', '이름', '생년월일', '전화번호', '이메일', 
+                                       '입사일', '산재발생횟수', '이사회여부', '성별', '재직여부']
+                        missing_cols = [col for col in required_cols if col not in df.columns]
+                        
+                        if missing_cols:
+                            upload_result.text = f'❌ 누락된 열: {", ".join(missing_cols)}'
+                            upload_result.classes('text-red-600')
+                            return
+                        
+                        # 데이터 검증 및 임시 저장
+                        preview_data = []
+                        valid_count = 0
+                        error_count = 0
+                        error_messages = []
+                        
+                        for idx, row in df.iterrows():
+                            try:
+                                # 기본 데이터 검증
+                                emp_id = str(row['사번']).strip() if pd.notna(row['사번']) else ''
+                                if not emp_id or emp_id == 'nan':
+                                    error_messages.append(f'행 {idx + 2}: 사번이 비어있음')
+                                    error_count += 1
+                                    continue
+                                
+                                emp_name = str(row['이름']).strip() if pd.notna(row['이름']) else ''
+                                if not emp_name or emp_name == 'nan':
+                                    error_messages.append(f'행 {idx + 2}: 이름이 비어있음')
+                                    error_count += 1
+                                    continue
+                                
+                                # 지점 처리
+                                branch = str(row['지점']).strip() if pd.notna(row['지점']) else '서울지사'
+                                
+                                # 생년월일 처리
+                                birth_date = str(row['생년월일']).strip() if pd.notna(row['생년월일']) else ''
+                                birth_formatted = ''
+                                if birth_date and birth_date != 'nan':
+                                    try:
+                                        if len(birth_date) == 8 and birth_date.isdigit():
+                                            birth_formatted = f"{birth_date[:4]}-{birth_date[4:6]}-{birth_date[6:8]}"
+                                        else:
+                                            birth_parsed = pd.to_datetime(birth_date)
+                                            birth_formatted = birth_parsed.strftime('%Y-%m-%d')
+                                    except:
+                                        error_messages.append(f'행 {idx + 2}: 잘못된 생년월일 형식')
+                                        error_count += 1
+                                        continue
+                                
+                                # 입사일 처리
+                                hire_date = str(row['입사일']).strip() if pd.notna(row['입사일']) else ''
+                                hire_formatted = ''
+                                if hire_date and hire_date != 'nan':
+                                    try:
+                                        if len(hire_date) == 8 and hire_date.isdigit():
+                                            hire_formatted = f"{hire_date[:4]}-{hire_date[4:6]}-{hire_date[6:8]}"
+                                        else:
+                                            hire_parsed = pd.to_datetime(hire_date)
+                                            hire_formatted = hire_parsed.strftime('%Y-%m-%d')
+                                    except:
+                                        error_messages.append(f'행 {idx + 2}: 잘못된 입사일 형식')
+                                        error_count += 1
+                                        continue
+                                
+                                # 성별 검증
+                                gender = str(row['성별']).strip() if pd.notna(row['성별']) else '남자'
+                                if gender not in ['남자', '여자']:
+                                    error_messages.append(f'행 {idx + 2}: 성별은 남자/여자만 가능')
+                                    error_count += 1
+                                    continue
+                                
+                                # 산재발생횟수 처리
+                                try:
+                                    accident_count = int(float(row['산재발생횟수'])) if pd.notna(row['산재발생횟수']) else 0
+                                    if accident_count < 0:
+                                        accident_count = 0
+                                except (ValueError, TypeError):
+                                    accident_count = 0
+                                
+                                # Y/N 값 처리
+                                board_yn = str(row['이사회여부']).strip().upper() if pd.notna(row['이사회여부']) else 'N'
+                                employment_yn = str(row['재직여부']).strip().upper() if pd.notna(row['재직여부']) else 'Y'
+                                
+                                # Y/N 값 유효성 검사
+                                if board_yn not in ['Y', 'N']:
+                                    board_yn = 'N'
+                                if employment_yn not in ['Y', 'N']:
+                                    employment_yn = 'Y'
+                                
+                                # 유효한 데이터를 임시 저장
+                                preview_data.append({
+                                    '지점': branch,
+                                    '사번': emp_id,
+                                    '이름': emp_name,
+                                    '생년월일': birth_formatted,
+                                    '전화번호': str(row['전화번호']).strip() if pd.notna(row['전화번호']) else '',
+                                    '이메일': str(row['이메일']).strip() if pd.notna(row['이메일']) else '',
+                                    '입사년도': hire_formatted.split('-')[0] if hire_formatted else '',
+                                    '입사일': hire_formatted,
+                                    '산재발생횟수': accident_count,
+                                    '이사회여부': board_yn,
+                                    '성별': gender,
+                                    '재직여부': employment_yn,
+                                    '상태': '업로드 대기'
+                                })
+                                valid_count += 1
+                                
+                            except Exception as row_error:
+                                error_count += 1
+                                error_messages.append(f'행 {idx + 2}: {str(row_error)}')
+                        
+                        # 결과 메시지
+                        if error_count == 0:
+                            upload_result.text = f'✅ 검증 완료: {valid_count}건의 유효한 데이터가 준비되었습니다.'
+                            upload_result.classes('text-green-600')
+                        else:
+                            upload_result.text = f'⚠️ 부분 성공: {valid_count}건 유효, {error_count}건 오류\n오류: {"; ".join(error_messages[:3])}'
+                            upload_result.classes('text-orange-600')
+                        
+                        # 미리보기 테이블 업데이트
+                        if preview_data:
+                            if preview_table:
+                                preview_table.rows = preview_data
+                                preview_table.update()
+                            else:
+                                # 미리보기 테이블 생성
+                                preview_columns = [
+                                    {'name': '지점', 'label': '지점', 'field': '지점', 'align': 'center'},
+                                    {'name': '사번', 'label': '사번', 'field': '사번', 'align': 'center'},
+                                    {'name': '이름', 'label': '이름', 'field': '이름', 'align': 'center'},
+                                    {'name': '생년월일', 'label': '생년월일', 'field': '생년월일', 'align': 'center'},
+                                    {'name': '성별', 'label': '성별', 'field': '성별', 'align': 'center'},
+                                    {'name': '입사일', 'label': '입사일', 'field': '입사일', 'align': 'center'},
+                                    {'name': '이사회여부', 'label': '이사회여부', 'field': '이사회여부', 'align': 'center'},
+                                    {'name': '재직여부', 'label': '재직여부', 'field': '재직여부', 'align': 'center'},
+                                    {'name': '상태', 'label': '상태', 'field': '상태', 'align': 'center'}
+                                ]
+                                
+                                ui.label('🔍 업로드 데이터 미리보기').classes('text-lg font-bold text-blue-600 mt-4 mb-2')
+                                preview_table = ui.table(
+                                    columns=preview_columns, 
+                                    rows=preview_data,
+                                    row_key='사번'
+                                ).classes('w-full text-center bordered dense flat rounded shadow-sm max-h-60')
+                        
+                    except Exception as excel_error:
+                        upload_result.text = f'❌ 엑셀 파일 처리 오류: {str(excel_error)}'
+                        upload_result.classes('text-red-600')
+                        
+                except Exception as e:
+                    upload_result.text = f'❌ 파일 업로드 오류: {str(e)}'
+                    upload_result.classes('text-red-600')
+            
+            # 파일 업로드 컴포넌트
+            ui.upload(
+                label='엑셀 파일 선택 (.xlsx, .xls)',
+                auto_upload=True,
+                on_upload=handle_upload,
+                multiple=False
+            ).props('accept=".xlsx,.xls"').classes('w-full mb-4')
+            
+            # 일괄 저장 버튼
+            def save_all_data():
+                if not preview_data:
+                    ui.notify('❌ 저장할 데이터가 없습니다', type='warning')
+                    return
+                
+                if not db_session:
+                    ui.notify('❌ 데이터베이스 연결이 없습니다', type='negative')
+                    return
+                
+                try:
+                    saved_count = 0
+                    updated_count = 0
+                    errors = []
+                    
+                    for emp_data in preview_data:
+                        try:
+                            emp_id = int(emp_data['사번'])
+                            
+                            # 기존 직원 확인
+                            existing_emp = db_session.query(EmpInfo).filter_by(EMP_ID=emp_id).first()
+                            
+                            # 날짜 변환 (YYYY-MM-DD -> YYYYMMDD)
+                            birth_db = emp_data['생년월일'].replace('-', '') if emp_data['생년월일'] else ''
+                            hire_db = emp_data['입사일'].replace('-', '') if emp_data['입사일'] else ''
+                            
+                            # 성별 변환 (남자->1, 여자->2)
+                            gender_code = '1' if emp_data['성별'] == '남자' else '2'
+                            
+                            if existing_emp:
+                                # 기존 직원 업데이트
+                                existing_emp.EMP_NM = emp_data['이름']
+                                existing_emp.EMP_BIRTH = birth_db
+                                existing_emp.EMP_TEL = emp_data['전화번호']
+                                existing_emp.EMP_EMAIL = emp_data['이메일']
+                                existing_emp.EMP_JOIN = hire_db
+                                existing_emp.EMP_ACIDENT_CNT = emp_data['산재발생횟수']
+                                existing_emp.EMP_BOARD_YN = emp_data['이사회여부']
+                                existing_emp.EMP_GENDER = gender_code
+                                existing_emp.EMP_ENDYN = emp_data['재직여부']
+                                existing_emp.EMP_COMP = emp_data['지점']
+                                updated_count += 1
+                            else:
+                                # 신규 직원 추가
+                                new_emp = EmpInfo(
+                                    EMP_ID=emp_id,
+                                    EMP_NM=emp_data['이름'],
+                                    EMP_BIRTH=birth_db,
+                                    EMP_TEL=emp_data['전화번호'],
+                                    EMP_EMAIL=emp_data['이메일'],
+                                    EMP_JOIN=hire_db,
+                                    EMP_ACIDENT_CNT=emp_data['산재발생횟수'],
+                                    EMP_BOARD_YN=emp_data['이사회여부'],
+                                    EMP_GENDER=gender_code,
+                                    EMP_ENDYN=emp_data['재직여부'],
+                                    EMP_COMP=emp_data['지점']
+                                )
+                                db_session.add(new_emp)
+                                saved_count += 1
+                                
+                        except Exception as e:
+                            errors.append(f"사번 {emp_data['사번']}: {str(e)}")
+                    
+                    if errors:
+                        error_msg = f"❌ 일부 데이터 저장 실패:\n" + "\n".join(errors[:5])
+                        if len(errors) > 5:
+                            error_msg += f"\n... 외 {len(errors) - 5}개"
+                        ui.notify(error_msg, type='negative')
+                        db_session.rollback()
+                        return
+                    
+                    # 데이터베이스 커밋
+                    db_session.commit()
+                    
+                    # 메인 테이블 새로고침
+                    refresh_table_data()
+                    
+                    # 다이얼로그 닫기 및 초기화
+                    excel_dialog.close()
+                    preview_data.clear()
+                    if preview_table:
+                        preview_table.rows = []
+                        preview_table.update()
+                    upload_result.text = ''
+                    
+                    ui.notify(f'✅ 저장 완료: 신규 {saved_count}명, 수정 {updated_count}명', type='positive')
+                    
+                except Exception as e:
+                    ui.notify(f'❌ 저장 중 오류 발생: {str(e)}', type='negative')
+                    if db_session:
+                        db_session.rollback()
+            
+            # 다이얼로그 하단 버튼들
+            with ui.row().classes('justify-end mt-4 gap-3'):
+                ui.button('저장', on_click=save_all_data).props('color=primary text-color=white').classes('px-6 py-2 rounded-lg')
+                ui.button('취소', on_click=excel_dialog.close).props('color=negative text-color=white').classes('px-6 py-2 rounded-lg')
+
+        # 테이블 새로고침 함수 (엑셀 저장 후 사용)
+        def refresh_table_data():
+            """테이블 데이터만 새로고침"""
+            nonlocal original_employees, filtered_employees
+            updated_employees = []
+            if db_session:
+                try:
+                    db_employees = db_session.query(EmpInfo).all()
+                    for emp in db_employees:
+                        # 생년월일 포맷 변환 (YYYYMMDD -> YYYY-MM-DD)
+                        birth_formatted = ''
+                        if emp.EMP_BIRTH and len(emp.EMP_BIRTH) == 8:
+                            birth_formatted = f"{emp.EMP_BIRTH[:4]}-{emp.EMP_BIRTH[4:6]}-{emp.EMP_BIRTH[6:8]}"
+                        
+                        # 입사일 포맷 변환 (YYYYMMDD -> YYYY-MM-DD)
+                        join_formatted = ''
+                        if emp.EMP_JOIN and len(emp.EMP_JOIN) == 8:
+                            join_formatted = f"{emp.EMP_JOIN[:4]}-{emp.EMP_JOIN[4:6]}-{emp.EMP_JOIN[6:8]}"
+                        
+                        # 성별 변환 (1->남자, 2->여자)
+                        gender_text = ''
+                        if emp.EMP_GENDER == '1':
+                            gender_text = '남자'
+                        elif emp.EMP_GENDER == '2':
+                            gender_text = '여자'
+                        
+                        updated_employees.append({
+                            '지점': emp.EMP_COMP or '서울지사',
+                            '사번': str(emp.EMP_ID),
+                            '이름': emp.EMP_NM,
+                            '생년월일': birth_formatted,
+                            '전화번호': emp.EMP_TEL or '',
+                            '이메일': emp.EMP_EMAIL or '',
+                            '입사년도': emp.EMP_JOIN[:4] if emp.EMP_JOIN and len(emp.EMP_JOIN) >= 4 else '',
+                            '입사일': join_formatted,
+                            '산재발생횟수': emp.EMP_ACIDENT_CNT or 0,
+                            '이사회여부': emp.EMP_BOARD_YN or 'N',
+                            '성별': gender_text,
+                            '재직여부': emp.EMP_ENDYN or 'Y',
+                            'db_id': emp.EMP_ID,
+                            'actions': '수정'
+                        })
+                except Exception as e:
+                    print(f"테이블 새로고침 오류: {str(e)}")
+            
+            # 전역 employees 업데이트
+            employees.clear()
+            employees.extend(updated_employees)
+            original_employees = updated_employees
+            # 필터 재적용
+            apply_filters()
        
