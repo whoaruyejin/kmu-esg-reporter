@@ -46,7 +46,7 @@ async def generate_esg_pdf(db: Session, cmp_num: str, options: Dict[str, Any]) -
     html = build_report_html(
     company_info=company_info,
     period_label=period_label,
-    summary_metrics=report.get("summary", {}),
+    summary_metrics=summary,
     env_metrics=env_metrics,
     soc_metrics=soc_metrics,
     gov_metrics=gov_metrics,

@@ -1,4 +1,4 @@
-# app/services/reports/esg/sections.py
+# app/services/report/sections.py
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pathlib import Path
 from .types import ESGSectionContext

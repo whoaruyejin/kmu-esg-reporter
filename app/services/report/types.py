@@ -1,4 +1,4 @@
-# app/services/reports/esg/types.py
+# app/services/report/types.py
 from dataclasses import dataclass
 from typing import Dict, Any, Optional, List
 

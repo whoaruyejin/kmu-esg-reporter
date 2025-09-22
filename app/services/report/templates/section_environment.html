@@ -1,10 +1,21 @@
-<!-- app/templates/reports/esg/section_environment.html -->
+<!-- app/service/report/templates/section_environment.html -->
 <section>
   <h2>Environmental — Overview</h2>
   <div class="grid">
-    {% for k,v in section.metrics.overview.items() %}
+    {% for k, v in section.metrics.overview.items() %}
       <div class="card">
-        <strong>{{ k }}</strong><br/>{{ v }}
+        <strong>{{ k }}</strong><br/>{{ v if v is not none else '-' }}
+      </div>
+    {% endfor %}
+  </div>
+
+  <h3 style="margin-top:8px">Key KPIs</h3>
+  <div class="grid">
+    {% for row in section.metrics.kpis %}
+      <div class="card">
+        <strong>{{ row.label }}</strong><br/>
+        {{ row.value if row.value is not none else '-' }}
+        {% if row.note %}<div class="muted">{{ row.note }}</div>{% endif %}
       </div>
     {% endfor %}
   </div>
@@ -14,20 +25,52 @@
 
 <section>
   <h2>Environmental — Details</h2>
-  <div class="card">
-    <strong>Trends</strong>
-    <ul>
-      {% for item in section.metrics.trends %}
-        <li>{{ item }}</li>
-      {% endfor %}
-    </ul>
+
+  <h3>Highlights & Risks</h3>
+  <div class="grid">
+    {% for h in section.metrics.highlights %}
+      <div class="card"><strong>{{ h.title }}</strong><br/>{{ h.desc }}</div>
+    {% endfor %}
+    {% for r in section.metrics.risks %}
+      <div class="card">
+        <strong>리스크</strong>: {{ r.risk }}<br/>
+        <span class="muted">대응</span>: {{ r.mitigation }}
+      </div>
+    {% endfor %}
   </div>
-  <div class="card">
-    <strong>Actions</strong>
-    <ul>
-      {% for a in section.metrics.actions %}
-        <li>{{ a }}</li>
-      {% endfor %}
-    </ul>
+
+  <h3 style="margin-top:8px">Actions</h3>
+  <div class="grid">
+    {% for a in section.metrics.actions %}
+      <div class="card">
+        <strong>{{ a.action }}</strong><br/>{{ a.impact }}
+      </div>
+    {% endfor %}
   </div>
+
+  {% if section.metrics.trends and section.metrics.trends|length > 0 %}
+    <h3 style="margin-top:8px">Trends</h3>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>연도</th>
+            <th>에너지(MWh)</th>
+            <th>GHG(tCO₂e)</th>
+            <th>재생 비율(%)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in section.metrics.trends %}
+          <tr>
+            <td>{{ t.year or t.get('year', '-') }}</td>
+            <td>{{ t.energy_use or t.get('energy_use', '-') }}</td>
+            <td>{{ t.green_use or t.get('ghg_emissions', '-') }}</td>
+            <td>{{ t.renewable_ratio or t.get('renewable_ratio', '-') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
 </section>

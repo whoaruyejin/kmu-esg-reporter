@@ -1,9 +1,29 @@
-<!-- app/templates/reports/esg/section_social.html -->
+<!-- app/service/report/templates/section_social.html -->
 <section>
   <h2>Social — Overview</h2>
   <div class="grid">
-    {% for k,v in section.metrics.overview.items() %}
-      <div class="card"><strong>{{ k }}</strong><br/>{{ v }}</div>
+    {% for k, v in section.metrics.overview.items() %}
+      <div class="card">
+        <strong>{{ k }}</strong><br/>{{ v if v is not none else '-' }}
+      </div>
+    {% endfor %}
+  </div>
+
+  <h3 style="margin-top:8px">Diversity</h3>
+  <div class="grid">
+    {% for d in section.metrics.diversity %}
+      <div class="card">
+        <strong>{{ d.label }}</strong><br/>{{ d.value if d.value is not none else '-' }}
+      </div>
+    {% endfor %}
+  </div>
+
+  <h3 style="margin-top:8px">Safety</h3>
+  <div class="grid">
+    {% for s in section.metrics.safety %}
+      <div class="card">
+        <strong>{{ s.label }}</strong><br/>{{ s.value if s.value is not none else '-' }}
+      </div>
     {% endfor %}
   </div>
 </section>
@@ -12,10 +32,42 @@
 
 <section>
   <h2>Social — Details</h2>
-  <div class="card"><strong>Diversity</strong>
-    <ul>{% for d in section.metrics.diversity %}<li>{{ d }}</li>{% endfor %}</ul>
+
+  <h3>Training</h3>
+  <div class="grid">
+    {% for t in section.metrics.training %}
+      <div class="card">
+        <strong>{{ t.label }}</strong><br/>{{ t.value if t.value is not none else '-' }}
+      </div>
+    {% endfor %}
   </div>
-  <div class="card"><strong>Safety</strong>
-    <ul>{% for s in section.metrics.safety %}<li>{{ s }}</li>{% endfor %}</ul>
+
+  <h3 style="margin-top:8px">Programs</h3>
+  <div class="grid">
+    {% for p in section.metrics.programs %}
+      <div class="card">
+        <strong>{{ p.title }}</strong><br/>{{ p.desc }}
+      </div>
+    {% endfor %}
   </div>
+
+  <h3 style="margin-top:8px">Actions</h3>
+  <div class="grid">
+    {% for a in section.metrics.actions %}
+      <div class="card">
+        <strong>{{ a.action }}</strong><br/>{{ a.impact }}
+      </div>
+    {% endfor %}
+  </div>
+
+  {% if section.metrics.stories and section.metrics.stories|length > 0 %}
+    <h3 style="margin-top:8px">Case Studies / Stories</h3>
+    <div class="card">
+      <ul>
+        {% for s in section.metrics.stories %}
+          <li>{{ s }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
 </section>

@@ -1,5 +1,7 @@
 """Chatbot page for ESG AI assistant with structured interface."""
 
+import json
+from pathlib import Path
 from nicegui import ui
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
@@ -287,15 +289,15 @@ class ChatbotPage(BasePage):
         query = self._build_structured_query()
 
         # Show processing message
-        with self.results_area:
-            ui.separator().classes("my-4")
-            with ui.row().classes("items-center gap-2 mb-4"):
-                ui.spinner("dots", size="sm", color="primary")
-                ui.label("Processing your request...").classes("text-body2")
+        # with self.results_area:
+        #     ui.separator().classes("my-4")
+        #     with ui.row().classes("items-center gap-2 mb-4"):
+        #         ui.spinner("dots", size="sm", color="primary")
+        #         ui.label("Processing your request...").classes("text-body2")
 
         # Execute with chatbot
         try:
-            await self._stream_ai_response(query)
+            await self._stream_ai_response(query, context=self.selected_options)
         except Exception as e:
             with self.results_area:
                 ui.label(f"Error: {str(e)}").classes("text-negative")
@@ -322,42 +324,139 @@ class ChatbotPage(BasePage):
 
         return base_query
 
-    async def _stream_ai_response(self, query: str) -> None:
-        """Stream AI response."""
-        # response_container = ui.column().classes("w-full")
+    async def _stream_ai_response(self, query: str, context: dict) -> None:
+        """AI 응답을 스트리밍하고 보고서 생성을 처리합니다."""
+        # 공통: AI 응답을 표시할 UI 컨테이너 구성
+        with self.results_area:
+            ui.separator().classes("my-2")
+            with ui.row().classes("items-start gap-3 mb-2"):
+                ui.avatar(icon="smart_toy", color="primary")
+                with ui.column():
+                    ui.label("AI Assistant").classes("font-weight-bold text-sm")
+                    # 이 컨테이너는 보고서 생성 결과 또는 스트리밍 텍스트를 담습니다.
+                    response_container = ui.column()
 
-        # with self.results_area:
-        #     with response_container:
-        #         with ui.row().classes("items-start gap-3 mb-4"):
-        #             ui.avatar(icon="smart_toy", color="primary")
-        #             with ui.column():
-        #                 ui.label("AI Assistant").classes("font-weight-bold text-sm")
-        #                 response_label = ui.label("").classes("text-body2")
-
-        # # Stream response
-        # full_response = ""
-        # async for chunk in self.chatbot.stream_response(query, self.session_id):
-        #     full_response += chunk
-        #     response_label.text = full_response
-        #     await asyncio.sleep(0.05)
-
-        self.results_area.scroll_to(percent=1)
-
-        # intent가 보고서 생성이면, PDF 다운로드 버튼 표시
+        # 분기: '보고서 생성' 인텐트일 경우와 아닐 경우
         if self.selected_options.get("intent") == "report_generation":
-            with self.results_area:
-                ui.separator().classes("my-2")
-                ui.label("Report ready. You can download a PDF version.").classes("text-body2")
-                ui.button("⬇️ Download PDF", on_click=self._download_pdf).props("color=primary")
+            # 별도의 비동기 함수를 호출하여 보고서 생성 처리
+            with response_container:
+                with ui.row(align_items='center'):
+                    ui.spinner(color='primary')
+                    ui.label("보고서를 생성하고 있습니다. 잠시만 기다려 주세요...").classes("text-body2")
+            await self._handle_report_generation(query, response_container, context)
+        else:
+            # 일반 텍스트 응답 스트리밍
+            with response_container:
+                response_label = ui.label("").classes("text-body2")
+            
+            full_response = ""
+            try:
+                # 챗봇의 스트리밍 응답을 받아 UI에 표시
+                async for chunk in self.chatbot.stream_response(query, self.session_id):
+                    full_response += chunk
+                    response_label.text = full_response
+                    await asyncio.sleep(0.01) # UI 업데이트를 위한 짧은 대기
+            except Exception as e:
+                response_label.text = f"스트리밍 중 오류가 발생했습니다: {e}"
 
-    async def _download_pdf(self) -> None:
+    async def _handle_report_generation(self, query: str, container: ui.column, context: dict) -> None:
         try:
-            # PDF 생성 (서비스 호출)
-            pdf_path = await generate_esg_pdf(self.db, cmp_num=self.cmp_num, options=self.selected_options)
-            # NiceGUI 다운로드
-            ui.download(pdf_path)
+            # 1) 보고서 직접 생성(LLM 스트리밍 우회): 도구를 dict로 호출
+            report_type = "comprehensive" if context.get("category") in (None, "all") else "category_specific"
+            gen_res_raw = await self.chatbot.tools[3].arun({"cmp_num": self.cmp_num, "report_type": report_type})
+            gen_res = json.loads(gen_res_raw)
+
+            if gen_res.get("status") != "success":
+                raise RuntimeError(f"보고서 생성 실패: {gen_res.get('message')}")
+
+            report_id = gen_res.get("report_id")
+            if not report_id:
+                raise RuntimeError("보고서 ID를 받지 못했습니다.")
+
+            # 2) 받은 report_id로 바로 PDF 내보내기
+            pdf_path = self.chatbot.export_report_to_pdf(report_id=report_id)
+
+            container.clear()
+            with container:
+                if pdf_path:
+                    self._last_report_path = pdf_path
+                    report_title = Path(pdf_path).name.replace(".pdf", "").replace("_", " ")
+                    ui.label("✅ 보고서 생성이 완료되었습니다.").classes("text-body2 text-positive")
+                    ui.label(f"보고서명: {report_title}").classes("text-caption text-grey")
+                    ui.button("⬇️ PDF 다운로드", on_click=self._download_pdf).props("color=primary")
+                else:
+                    ui.label("⚠️ 보고서를 생성했지만 PDF 파일 경로를 얻지 못했습니다.").classes("text-warning")
         except Exception as e:
-            ui.notify(f"PDF 생성 중 오류: {e}", type='negative')
+            logger.error(f"보고서 생성 실패: {e}", exc_info=True)
+            container.clear()
+            with container:
+                ui.label(f"❌ 보고서 생성에 실패했습니다: {e}").classes("text-negative")
+
+    def _download_pdf(self) -> None:
+        """생성된 PDF 파일을 다운로드합니다."""
+        if self._last_report_path and Path(self._last_report_path).exists():
+            ui.download(self._last_report_path)
+        else:
+            ui.notify("다운로드할 보고서 파일을 찾을 수 없습니다.", color="negative")
+
+    # async def _stream_ai_response(self, query: str) -> None:
+    #     """Stream AI response."""
+    #     # 공통: results_area 안에 'AI Assistant' 말풍선 컨테이너 구성
+    #     with self.results_area:
+    #         container = ui.column().classes("w-full")
+    #         with container:
+    #             ui.separator().classes("my-2")
+    #             with ui.row().classes("items-start gap-3 mb-2"):
+    #                 ui.avatar(icon="smart_toy", color="primary")
+    #                 with ui.column():
+    #                     ui.label("AI Assistant").classes("font-weight-bold text-sm")
+    #                     # 스트리밍일 때만 활용되는 라벨(보고서 생성일 때는 별도 메시지 사용)
+    #                     response_label = ui.label("").classes("text-body2")
+
+    #     # 분기: 보고서 생성 vs 일반 답변
+    #     if self.selected_options.get("intent") == "report_generation":
+    #         # 예: 보고서 생성 로직 (동기/비동기 여부에 맞게 호출)
+    #         # 반환값은 예시 — 실제 너의 구현에 맞게 바꿔줘
+    #         try:
+    #             # 실제 보고서 생성 (예: self.chatbot.generate_report(...) 또는 내부 함수)
+    #             # report_info = await self.chatbot.generate_report(query, self.session_id)
+    #             # self._last_report_path = report_info.file_path
+    #             # self._last_report_summary = report_info.summary
+
+    #             # 데모용: 생성 완료 메시지
+    #             self._last_report_path = "/tmp/report.pdf"  # _download_pdf에서 사용
+    #             self._last_report_summary = "ESG Report for 2024 (HQ)"
+
+    #             with self.results_area:
+    #                 ui.label("Report ready. You can download a PDF version.").classes("text-body2")
+    #                 ui.label(self._last_report_summary).classes("text-caption text-grey")
+    #                 ui.button("⬇️ Download PDF", on_click=self._download_pdf).props("color=primary")
+    #         except Exception as e:
+    #             with self.results_area:
+    #                 ui.separator().classes("my-2")
+    #                 ui.label(f"Report generation failed: {e}").classes("text-negative")
+    #     else:
+    #         # 일반 답변 스트리밍
+    #         full_response = ""
+    #         try:
+    #             async for chunk in self.chatbot.stream_response(query, self.session_id):
+    #                 full_response += chunk
+    #                 response_label.text = full_response
+    #                 await asyncio.sleep(0.02)
+    #         except Exception as e:
+    #             response_label.text = f"(stream error) {e}"
+
+    #     # 끝으로 스크롤 다운
+    #     self.results_area.scroll_to(percent=1)
+
+    # async def _download_pdf(self) -> None:
+    #     try:
+    #         # PDF 생성 (서비스 호출)
+    #         pdf_path = await generate_esg_pdf(self.db, cmp_num=self.cmp_num, options=self.selected_options)
+    #         # NiceGUI 다운로드
+    #         ui.download(pdf_path)
+    #     except Exception as e:
+    #         ui.notify(f"PDF 생성 중 오류: {e}", type='negative')
 
 
 

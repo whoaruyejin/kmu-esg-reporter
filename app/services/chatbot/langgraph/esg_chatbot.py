@@ -19,6 +19,9 @@ from typing import Annotated
 from sqlalchemy.orm import Session
 from app.core.database.models import CmpInfo, EmpInfo, Env, ChatSession, Report, DataImportLog  # 새로운 모델 import
 from app.data.processors.data_processor import ESGDataProcessor
+from app.services.report.ai_enrich import ESGEnricher
+from app.services.report.generator import build_report_html
+from app.services.report.renderer import html_to_pdf
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -55,6 +58,12 @@ class ESGReportChatbot:
             openai_api_key=api_key,
             streaming=True,
             temperature=0.3
+        )
+        self.llm_nostream = ChatOpenAI(
+            model=self.llm.model_name, 
+            temperature=0.3, 
+            streaming=False, 
+            openai_api_key=api_key
         )
         
         # ESG 시스템 프롬프트
@@ -119,33 +128,62 @@ class ESGReportChatbot:
                 return f"데이터 갭 분석 중 오류 발생: {str(e)}"
         
         @tool
-        def generate_esg_report(cmp_num: str, report_type: str = "comprehensive") -> str:
-            """ESG 보고서를 생성합니다."""
+        async def generate_esg_report(cmp_num: str, report_type: str = "comprehensive") -> str:
+            """ESG 보고서를 HTML 형식으로 생성하고 ID를 포함한 결과를 반환합니다."""
+            logger.info(f"'{cmp_num}'에 대한 보고서 생성 도구를 시작합니다.")
             try:
                 company = self.db.query(CmpInfo).filter_by(cmp_num=cmp_num).first()
                 if not company:
-                    return "회사 정보를 찾을 수 없습니다."
+                    raise ValueError("회사 정보를 찾을 수 없습니다.")
+
+                report_data = self.data_processor.generate_comprehensive_report(cmp_num)
+                if 'error' in report_data:
+                    raise ValueError(f"보고서 데이터 생성 실패 - {report_data['error']}")
                 
-                # 종합 보고서 생성
-                comprehensive_report = self.data_processor.generate_comprehensive_report(cmp_num)
-                if 'error' in comprehensive_report:
-                    return comprehensive_report['error']
+                company_info = report_data.get("company_info", {})
+                esg_metrics = report_data.get("esg_metrics", {})
                 
-                # 데이터베이스에 보고서 저장
+                 # LLM으로 텍스트/권고 보강 (구조화)
+                enricher = ESGEnricher(self.llm_nostream)  # self.llm은 __init__에서 ChatOpenAI(...)
+                enriched = await enricher._enrich_with_guard(esg_metrics)
+
+                # 템플릿 입력은 우리가 만든 정규화 루틴이 처리
+                # build_report_html에 전달할 때, 'ai' 블럭을 함께 넘겨 템플릿에서 사용
+                period_label = f"{datetime.now().year - 1}년도 기준"
+                final_html = build_report_html(
+                    company_info=company_info,
+                    period_label=period_label,
+                    summary_metrics=enriched.get("summary", {}),     # 상단 Executive Summary 카드에 활용
+                    env_metrics={**esg_metrics.get("environment", {}), "ai": enriched["environment"]["ai"]},
+                    soc_metrics={**esg_metrics.get("social", {}), "ai": enriched["social"]["ai"]},
+                    gov_metrics={**esg_metrics.get("governance", {}), "ai": enriched["governance"]["ai"]},
+                )
+
+                report_title = f"{company.cmp_nm} ESG 보고서 ({datetime.now().strftime('%Y-%m-%d')})"
                 report = Report(
-                    cmp_num=cmp_num,  # company_id -> cmp_num으로 변경
-                    title=f"{company.cmp_nm} ESG 보고서 ({report_type})",
+                    company_id=cmp_num, 
+                    title=report_title,
                     report_type=report_type,
-                    content=json.dumps(comprehensive_report, ensure_ascii=False),
-                    generated_by="chatbot",
-                    format="json"
+                    content=final_html,
+                    generated_by="langgraph_chatbot",
+                    format="html"
                 )
                 self.db.add(report)
                 self.db.commit()
+                self.db.refresh(report)
                 
-                return json.dumps(comprehensive_report, ensure_ascii=False, indent=2)
+                logger.info(f"성공: 보고서를 DB에 저장했습니다. (ID: {report.id})")
+                
+                result = {
+                    "status": "success",
+                    "message": f"'{report.title}' 보고서가 생성되었습니다.",
+                    "report_id": report.id 
+                }
+                return json.dumps(result)
+
             except Exception as e:
-                return f"보고서 생성 중 오류 발생: {str(e)}"
+                logger.error(f"보고서 생성 도중 오류 발생: {e}", exc_info=True)
+                return json.dumps({"status": "error", "message": str(e)})
         
         self.tools = [get_company_esg_data, analyze_esg_trends, identify_data_gaps, generate_esg_report]
     
@@ -304,18 +342,18 @@ class ESGReportChatbot:
         try:
             if intent == "data_query":
                 # 데이터 조회 도구 실행
-                result = self.tools[0].invoke(cmp_num, selected_category)
+                result = self.tools[0].invoke({"cmp_num": cmp_num, "category": selected_category})
                 tool_results["esg_data"] = result
                 tool_results["requested_category"] = selected_category
                 tool_results["requested_period"] = selected_period
                 
             elif intent == "analysis_request":
                 # 트렌드 분석 도구 실행
-                result = self.tools[1].invoke(cmp_num, selected_category)
+                result = self.tools[1].invoke({"cmp_num": cmp_num, "category": selected_category})
                 tool_results["trend_analysis"] = result
                 
                 # 데이터 갭 분석
-                gap_result = self.tools[2].invoke(cmp_num)
+                gap_result = self.tools[2].invoke({"cmp_num": cmp_num})
                 tool_results["data_gaps"] = gap_result
                 tool_results["analysis_category"] = selected_category
                 tool_results["analysis_period"] = selected_period
@@ -323,7 +361,7 @@ class ESGReportChatbot:
             elif intent == "report_generation":
                 # 보고서 생성 도구 실행
                 report_type = "comprehensive" if selected_category == "all" else "category_specific"
-                result = self.tools[3].invoke(cmp_num, report_type)
+                result = self.tools[3].invoke({"cmp_num": cmp_num, "report_type": report_type})
                 tool_results["generated_report"] = result
                 tool_results["report_category"] = selected_category
                 tool_results["report_period"] = selected_period
@@ -459,7 +497,7 @@ ESG 분석과 보고서 생성을 위해 먼저 회사를 선택해 주세요.
         self.db.commit()
         return session_id
     
-    async def stream_response(self, query: str, session_id: str, context: Dict[str, Any] = None) -> str:
+    async def stream_response(self, query: str, session_id: str, context: Dict[str, Any] = None) -> str: # type: ignore
         """스트리밍 응답 처리 - 추가 컨텍스트 지원"""
         try:
             initial_state = {
@@ -520,43 +558,41 @@ ESG 분석과 보고서 생성을 위해 먼저 회사를 선택해 주세요.
             return None
 
 
-    def export_report_to_pdf(self, report_id: Optional[int] = None, out_dir: str = "exports") -> Optional[str]:
+    def export_report_to_pdf(self, report_id: Optional[int] = None, out_dir: str = "generated_reports") -> Optional[str]:
         """
         최신(또는 지정) 보고서의 HTML을 PDF로 변환해 파일 경로를 반환.
-        WeasyPrint 사용. (pip install weasyprint)
+        기존에 만든 html_to_pdf 렌더러 사용.
         """
         try:
-            from weasyprint import HTML  # lazy import
-
             os.makedirs(out_dir, exist_ok=True)
-
-            # report 선택
+            report = None
             if report_id:
                 report = self.db.query(Report).filter(Report.id == report_id).first()
             else:
-                report = self.get_latest_report(self.cmp_num)
+                report = self.db.query(Report).filter(Report.company_id == self.cmp_num).order_by(Report.created_at.desc()).first()
 
             if not report:
-                logger.warning("내보낼 보고서가 없습니다.")
+                logger.warning(f"{self.cmp_num}에 대해 내보낼 보고서가 없습니다.")
                 return None
             if (report.format or "").lower() != "html" or not report.content:
                 logger.warning("보고서 포맷이 HTML이 아니거나 내용이 비어있습니다.")
                 return None
 
-            # 파일명
-            safe_title = (report.title or "ESG_Report").replace("/", "_").replace("\\", "_")
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            pdf_path = os.path.join(out_dir, f"{safe_title}_{ts}.pdf")
+            # 파일명 생성
+            company = self.db.query(CmpInfo).filter_by(cmp_num=report.company_id).first()
+            company_name = company.cmp_nm if company else "Unknown_Company"
+            safe_title = f"ESG_Report_{company_name}".replace("/", "_")
+            pdf_path = os.path.join(out_dir, f"{safe_title}.pdf")
 
-            # HTML -> PDF 변환
-            HTML(string=report.content, base_url=os.getcwd()).write_pdf(pdf_path)
+            # ✅ WeasyPrint 대신 우리가 만든 PDF 변환 함수 사용
+            html_to_pdf(report.content, pdf_path)
 
-            # DB에 file_path 반영 (선택)
+            # DB에 파일 경로 업데이트
             report.file_path = pdf_path
             report.file_size = os.path.getsize(pdf_path)
             self.db.commit()
 
             return pdf_path
         except Exception as e:
-            logger.error(f"export_report_to_pdf error: {e}")
+            logger.error(f"export_report_to_pdf 오류: {e}", exc_info=True)
             return None
