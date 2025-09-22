@@ -121,7 +121,100 @@ class HRPage:
             {'name': 'actions', 'label': '수정', 'field': 'actions', 'align': 'center'},
         ]
 
-        table = ui.table(columns=columns, rows=employees, row_key='사번').classes(
+        # =======================
+        # 검색 / 필터 UI
+        # =======================
+        original_employees = employees.copy()
+        filtered_employees = employees.copy()
+
+        def apply_filters():
+            nonlocal filtered_employees
+            filtered_employees = original_employees.copy()
+
+            # 지점 검색 (SELECT BOX)
+            if branch_input.value and branch_input.value != '전체':
+                filtered_employees = [r for r in filtered_employees if r['지점'] == branch_input.value]
+            
+            # 사번 검색
+            if empno_input.value:
+                filtered_employees = [r for r in filtered_employees if empno_input.value in str(r['사번'])]
+            
+            # 이름 검색
+            if name_input.value:
+                filtered_employees = [r for r in filtered_employees if name_input.value.upper() in r['이름'].upper()]
+            
+            # 입사일 범위 검색 (년도 기준)
+            if hire_year_from_input.value:
+                filtered_employees = [r for r in filtered_employees if r['입사년도'] and int(r['입사년도']) >= hire_year_from_input.value]
+            if hire_year_to_input.value:
+                filtered_employees = [r for r in filtered_employees if r['입사년도'] and int(r['입사년도']) <= hire_year_to_input.value]
+            
+            # 성별 필터
+            if gender_select.value and gender_select.value != '전체':
+                filtered_employees = [r for r in filtered_employees if r['성별'] == gender_select.value]
+
+            table.rows = filtered_employees
+            table.update()
+            result_count.text = f'검색 결과: {len(filtered_employees)}건'
+
+        def reset_filters():
+            branch_input.set_value('전체')
+            empno_input.set_value('')
+            name_input.set_value('')
+            hire_year_from_input.set_value(None)
+            hire_year_to_input.set_value(None)
+            gender_select.set_value('전체')
+
+            table.rows = original_employees
+            table.update()
+            result_count.text = f'검색 결과: {len(original_employees)}건'
+
+        # =======================
+        # 검색 UI 카드
+        # =======================
+        with ui.card().classes('w-full p-2 mb-4 rounded-xl shadow-sm bg-gray-50 text-xs'):
+            with ui.row().classes('items-center justify-between mb-2'):
+                with ui.row().classes('items-center gap-1'):
+                    ui.icon('tune', size='1rem').classes('text-blue-600')
+                    ui.label('검색 필터').classes('text-sm font-semibold text-gray-700')
+                result_count = ui.label(f'검색 결과: {len(employees)}건').classes('text-xs text-gray-500')
+
+            uniform_width = 'w-24 h-7 text-xs'
+
+            # row + wrap → 화면에 맞게 자동 줄바꿈
+            with ui.row().classes('items-center gap-4 flex-wrap'):
+                ui.label('지점').classes('text-xs font-medium text-gray-600')
+                # 사용 가능한 지점 목록에서 선택 (전체 옵션 추가)
+                branch_options = ['전체'] + available_branches
+                branch_input = ui.select(branch_options, value='전체') \
+                    .props('outlined dense clearable').classes('w-30 h-7 text-xs')
+
+                ui.label('사번').classes('text-xs font-medium text-gray-600')
+                empno_input = ui.input(placeholder='사번').props('outlined dense clearable').classes(uniform_width)
+
+                ui.label('이름').classes('text-xs font-medium text-gray-600')
+                name_input = ui.input(placeholder='이름').props('outlined dense clearable').classes(uniform_width)
+
+                ui.label('입사년도').classes('text-xs font-medium text-gray-600')
+                with ui.row().classes('items-center gap-1'):
+                    hire_year_from_input = ui.number(placeholder='시작년도', precision=0, min=1980, max=2030) \
+                        .props('outlined dense clearable').classes(uniform_width)
+                    ui.label('~').classes('text-gray-400 text-xs')
+                    hire_year_to_input = ui.number(placeholder='종료년도', precision=0, min=1980, max=2030) \
+                        .props('outlined dense clearable').classes(uniform_width)
+
+                ui.label('성별').classes('text-xs font-medium text-gray-600')
+                gender_select = ui.select(['전체', '남자', '여자'], value='전체') \
+                    .props('outlined dense clearable').classes('w-28 h-7 text-xs')
+
+                # 버튼들을 오른쪽으로 밀어서 배치
+                with ui.row().classes('items-center gap-2 ml-auto'):
+                    ui.button('검색', color='primary', on_click=apply_filters) \
+                        .classes('rounded-md shadow-sm px-4 py-2 text-sm font-medium')
+                    ui.button('초기화', color='secondary', on_click=reset_filters) \
+                        .classes('rounded-md shadow-sm px-4 py-2 text-sm font-medium')
+
+        table = ui.table(columns=columns, rows=filtered_employees, row_key='사번').classes(
             'w-full text-center bordered dense flat rounded shadow-sm'
         ).props(
              'table-header-class=bg-blue-200 text-white'
@@ -811,6 +904,7 @@ class HRPage:
         # 테이블 새로고침 함수 (엑셀 저장 후 사용)
         def refresh_table_data():
             """테이블 데이터만 새로고침"""
+            nonlocal original_employees, filtered_employees
             updated_employees = []
             if db_session:
                 try:
@@ -855,6 +949,7 @@ class HRPage:
             # 전역 employees 업데이트
             employees.clear()
             employees.extend(updated_employees)
-            table.rows = employees
-            table.update()
+            original_employees = updated_employees
+            # 필터 재적용
+            apply_filters()
        
