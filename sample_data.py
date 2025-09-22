@@ -13,44 +13,70 @@ from app.core.database import get_db, init_db
 from app.core.database.models import CmpInfo, EmpInfo, Env, Report, ChatSession
 
 
-def create_sample_company(db: Session, cmp_num: str = "6182618882") -> CmpInfo:
-    """CMP_INFO 샘플 회사 1건 생성."""
-    company = CmpInfo(
-        cmp_num=cmp_num,
-        cmp_nm="그린테크 주식회사",
-        cmp_industry="제조업",
-        cmp_sector="산업재",
-        cmp_addr="서울시 강남구 테헤란로 123",
-        cmp_extemp=2,             # 사외 이사회 수
-        cmp_ethics_yn="Y",        # 윤리경영 정책 유무
-        cmp_comp_yn="Y",          # 컴플라이언스 정책 유무
-    )
-    db.add(company)
+def create_sample_companies(db: Session, cmp_num: str = "6182618882") -> CmpInfo:
+    """CMP_INFO 샘플 회사 4개 지점 생성."""
+    branches_info = [
+        ("서울지점", "서울시 강남구 테헤란로 123"),
+        ("부산지점", "부산시 해운대구 센텀남대로 35"), 
+        ("대전지점", "대전시 유성구 대학로 291"),
+        ("광주지점", "광주시 서구 상무중앙로 61")
+    ]
+    
+    first_company = None
+    for branch, addr in branches_info:
+        company = CmpInfo(
+            cmp_num=cmp_num,
+            cmp_branch=branch,
+            cmp_nm="그린테크 주식회사",
+            cmp_industry="제조업",
+            cmp_sector="산업재",
+            cmp_addr=addr,
+            cmp_extemp=2,
+            cmp_ethics_yn="Y",
+            cmp_comp_yn="Y",
+        )
+        db.add(company)
+        if first_company is None:
+            first_company = company
+    
     db.commit()
-    db.refresh(company)
-    return company
+    db.refresh(first_company)
+    return first_company
 
 
-def create_sample_employees(db: Session, n: int = 12) -> None:
-    """EMP_INFO 샘플 직원 n명 생성.
-    (모델에 회사 FK가 없으므로 전사 기준 데이터로 삽입)
-    """
+def create_sample_employees(db: Session, n: int = 20) -> None:
+    """EMP_INFO 샘플 직원 n명 생성 (실제 한국인 이름, 지점별 배치)."""
+    korean_names = [
+        "김민준", "이서준", "박도현", "정하준", "최시우",
+        "강지호", "윤준서", "장지후", "임준우", "한도윤",
+        "김서연", "이채원", "박지유", "정하윤", "최서현",
+        "강예원", "윤지민", "장소율", "임다은", "한하은"
+    ]
+    
+    # branches = ["서울지점", "부산지점", "대전지점", "광주지점"]
     base_id = random.randint(10000, 20000)
+    
+    
+    accident_indices = {4, 7, 11}  # 산업재해 발생값 고정
+
     for i in range(n):
+        accident_count = 1 if i in accident_indices else 0  # 추가
+
         emp = EmpInfo(
-            emp_id=base_id + i,
-            emp_nm=f"직원{i+1}",
-            emp_birth=f"{random.randint(1980, 1998):04d}{random.randint(1,12):02d}{random.randint(1,28):02d}",
-            emp_tel=f"010-{random.randint(1000,9999)}-{random.randint(1000,9999)}",
-            emp_email=f"employee{i+1}@greentech.co.kr",
-            emp_join=f"{random.randint(2015, 2024):04d}{random.randint(1,12):02d}{random.randint(1,28):02d}",
-            emp_acident_cnt=random.choice([0, 0, 0, 1]),  # 대부분 0, 가끔 1
-            emp_board_yn="Y" if i < 2 else "N",         # 앞의 2명은 이사회
-            emp_gender=random.choice(["M", "F"]),
+            EMP_ID=base_id + i,
+            EMP_NM=korean_names[i],
+            EMP_BIRTH=f"{random.randint(1980, 1998):04d}{random.randint(1,12):02d}{random.randint(1,28):02d}",
+            EMP_TEL=f"010-{random.randint(1000,9999)}-{random.randint(1000,9999)}",
+            EMP_EMAIL=f"{korean_names[i].replace(' ', '').lower()}{i+1}@greentech.co.kr",
+            EMP_JOIN=f"{random.randint(2015, 2024):04d}{random.randint(1,12):02d}{random.randint(1,28):02d}",
+            EMP_ACIDENT_CNT=accident_count,  # (구) random.choice([0, 0, 0, 1])
+            EMP_BOARD_YN="Y" if i < 3 else "N",
+            EMP_GENDER="1" if i < 10 else "2",  # 남성 10명, 여성 10명
+            EMP_COMP="6182618882",
+            # EMP_BRANCH=branches[i % 4],  # 지점별 순환 배치
         )
         db.add(emp)
     db.commit()
-
 
 def create_sample_env(db: Session, years=(2021, 2022, 2023, 2024)) -> None:
     """ENV 샘플: 연도별 에너지/온실가스/재생에너지 비율."""
@@ -119,11 +145,11 @@ def create_sample_data():
     db = next(get_db())
     try:
         print("Creating sample company (CmpInfo)...")
-        company = create_sample_company(db, cmp_num="6182618882")
+        company = create_sample_companies(db, cmp_num="6182618882")  # 함수명 변경
         print(f"Created company: {company.cmp_nm} (CMP_NUM: {company.cmp_num})")
 
         print("Creating sample employees (EmpInfo)...")
-        create_sample_employees(db, n=12)
+        create_sample_employees(db, n=20)
 
         print("Creating sample environmental data (Env)...")
         create_sample_env(db, years=(2021, 2022, 2023, 2024))
@@ -139,7 +165,7 @@ def create_sample_data():
 Sample data created successfully!
 
 Company: {company.cmp_nm} (CMP_NUM: {company.cmp_num})
-- Employees: 12
+- Employees: 15
 - Environmental years: 2021~2024
 - 1 draft report
 - 1 demo chat session

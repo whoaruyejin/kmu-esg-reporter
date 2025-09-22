@@ -163,7 +163,7 @@ class EmpInfo(Base):
     EMP_JOIN = Column(String(8))  # 입사년도 (YYYYMMDD)
     EMP_ACIDENT_CNT = Column(Integer, default=0)  # 산재발생횟수
     EMP_BOARD_YN = Column(String(1), default='N')  # 이사회여부
-    EMP_GENDER = Column(String(1))  # 성별 (M:남자, F:여자)
+    EMP_GENDER = Column(String(1))  # 성별 (1:남자, 2:여자)
     EMP_ENDYN = Column(String(1), default='Y')  # 재직여부 (Y:재직, N:퇴직)
     EMP_COMP = Column(String(10))  # 사업장
     

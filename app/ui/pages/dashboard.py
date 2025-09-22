@@ -94,7 +94,7 @@ class DashboardPage(BasePage):
         ).scalar() or 0
         
         female_count = db_session.query(func.count(EmpInfo.EMP_ID)).filter(
-            and_(EmpInfo.EMP_COMP == cmp_num, EmpInfo.EMP_ENDYN == 'Y', EmpInfo.EMP_GENDER == 'F')
+            and_(EmpInfo.EMP_COMP == cmp_num, EmpInfo.EMP_ENDYN == 'Y', EmpInfo.EMP_GENDER == '2')
         ).scalar() or 0
         
         board_members = db_session.query(func.count(EmpInfo.EMP_ID)).filter(
@@ -231,11 +231,11 @@ class DashboardPage(BasePage):
         """Render social metrics details."""
         # Gender diversity
         male_count = db_session.query(func.count(EmpInfo.EMP_ID)).filter(
-            and_(EmpInfo.EMP_COMP == cmp_num, EmpInfo.EMP_ENDYN == 'Y', EmpInfo.EMP_GENDER == 'M')
+            and_(EmpInfo.EMP_COMP == cmp_num, EmpInfo.EMP_ENDYN == 'Y', EmpInfo.EMP_GENDER == '1')
         ).scalar() or 0
         
         female_count = db_session.query(func.count(EmpInfo.EMP_ID)).filter(
-            and_(EmpInfo.EMP_COMP == cmp_num, EmpInfo.EMP_ENDYN == 'Y', EmpInfo.EMP_GENDER == 'F')
+            and_(EmpInfo.EMP_COMP == cmp_num, EmpInfo.EMP_ENDYN == 'Y', EmpInfo.EMP_GENDER == '2')
         ).scalar() or 0
         
         with ui.row().classes('w-full items-center justify-between py-2 border-b border-blue-200'):
