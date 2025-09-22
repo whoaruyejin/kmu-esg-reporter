@@ -40,7 +40,7 @@ python-multipart==0.0.9
 
 # PDF rendering (pure Python, no external binary)
 xhtml2pdf==0.2.15
-reportlab==4.2.2
+reportlab==4.0.9 
 Pillow==10.4.0
 html5lib==1.1
 pypdf==4.3.1
