@@ -50,7 +50,7 @@ async def generate_esg_pdf(db: Session, cmp_num: str, options: Dict[str, Any]) -
     env_metrics=env_metrics,
     soc_metrics=soc_metrics,
     gov_metrics=gov_metrics,
-    narratives=report.get("narratives", {}),
+    # narratives=report.get("narratives", {}),
 )
 
     # 3) PDF 저장 경로
