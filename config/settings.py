@@ -42,11 +42,11 @@ class OpenAISettings(BaseSettings):
         description="OpenAI API key for chatbot functionality"
     )
     OPENAI_MODEL: str = Field(
-        default="gpt-3.5-turbo",
+        default="gpt-4.1",
         description="OpenAI model to use"
     )
     OPENAI_TEMPERATURE: float = Field(
-        default=0.7,
+        default=0.1,
         description="Temperature for OpenAI responses"
     )
     
