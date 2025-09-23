@@ -87,19 +87,36 @@ def _normalize_env(metrics: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 def _normalize_soc(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    
+    # m = dict(metrics or {})
+    # diversity = m.get("diversity", {})
+    # safety = m.get("safety", {})
+    # board = m.get("board_composition", {})
+
+    # overview = {
+    #     "총 인원": diversity.get("total_employees"),
+    #     "여성 비율(%)": diversity.get("female_ratio"),
+    #     "총 산재 건수": safety.get("total_accidents"),
+    #     "산재율(%)": safety.get("accident_rate"),
+    #     "무재해 인원": safety.get("zero_accident_employees"),
+    #     "여성 이사 비율(%)": board.get("female_board_ratio"),
+    # }
+    
     m = dict(metrics or {})
     diversity = m.get("diversity", {})
     safety = m.get("safety", {})
     board = m.get("board_composition", {})
 
+    # 잘못된 키 수정
     overview = {
         "총 인원": diversity.get("total_employees"),
-        "여성 비율(%)": diversity.get("female_ratio"),
+        "여성 비율(%)": round(diversity.get("female_ratio", 0) * 100, 1),  
         "총 산재 건수": safety.get("total_accidents"),
-        "산재율(%)": safety.get("accident_rate"),
+        "산재율(%)": round(safety.get("accident_rate", 0) * 100, 2),
         "무재해 인원": safety.get("zero_accident_employees"),
-        "여성 이사 비율(%)": board.get("female_board_ratio"),
+        "여성 이사 비율(%)": round(board.get("female_board_ratio", 0) * 100, 1),
     }
+
 
     diversity_list = [
         {"label": "남성(명)", "value": diversity.get("male_count")},
@@ -221,9 +238,25 @@ def build_report_html(
         soc=ESGSectionContext(title="Social", metrics=soc_metrics),
         gov=ESGSectionContext(title="Governance", metrics=gov_metrics),
     )
-    return base.render(
+    css_styles = """
+    <style>
+    body { font-family: 'KRBody', sans-serif; margin: 20px; line-height: 1.6; }
+    h1, h2, h3 { font-family: 'KRBodyBold', sans-serif; color: #2c3e50; }
+    .metric-box { border: 1px solid #ddd; padding: 10px; margin: 5px; border-radius: 5px; }
+    .overview-table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+    .overview-table th, .overview-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    .overview-table th { background-color: #f8f9fa; font-weight: bold; }
+    .positive { color: #27ae60; } .negative { color: #e74c3c; } .neutral { color: #7f8c8d; }
+    .section { margin: 20px 0; page-break-inside: avoid; }
+    </style>
+    """
+
+    final_html =  base.render(
         report=ctx,
         env_html=env_html,
         soc_html=soc_html,
         gov_html=gov_html,
     )
+    final_html = final_html.replace('<head>', f'<head>{css_styles}')
+    return final_html
+

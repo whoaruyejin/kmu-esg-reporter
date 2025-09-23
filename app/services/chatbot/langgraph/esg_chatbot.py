@@ -54,14 +54,14 @@ class ESGReportChatbot:
         
         # OpenAI LLM 설정
         self.llm = ChatOpenAI(
-            model="gpt-4o-mini",
+            model="gpt-4.1",
             openai_api_key=api_key,
             streaming=True,
-            temperature=0.3
+            temperature=0.1
         )
         self.llm_nostream = ChatOpenAI(
             model=self.llm.model_name, 
-            temperature=0.3, 
+            temperature=0.1, 
             streaming=False, 
             openai_api_key=api_key
         )

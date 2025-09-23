@@ -197,11 +197,33 @@ class ESGDataProcessor:
         }
         return metrics
 
+    # def calculate_environmental_metrics(self, env_df: pd.DataFrame) -> Dict[str, Any]:
+    #     """환경(Environmental) 지표 계산"""
+    #     if env_df.empty:
+    #         return {}
+            
+    #     metrics = {}
+        
+    #     # 최신 데이터
+    #     latest_year = env_df['year'].max()
+    #     latest_data = env_df[env_df['year'] == latest_year].iloc[0]
+        
+    #     metrics['current_status'] = {
+    #         'latest_year': int(latest_year),
+    #         'energy_use': float(latest_data['energy_use']) if latest_data['energy_use'] else 0,
+    #         'green_use': float(latest_data['green_use']) if latest_data['green_use'] else 0,
+    #         'renewable_yn': latest_data['renewable_yn'],
+    #         'renewable_ratio': latest_data['renewable_ratio'] if latest_data['renewable_ratio'] else 0
+    #     }
+        
+    #     return metrics
+    
+    
     def calculate_environmental_metrics(self, env_df: pd.DataFrame) -> Dict[str, Any]:
         """환경(Environmental) 지표 계산"""
         if env_df.empty:
             return {}
-            
+        
         metrics = {}
         
         # 최신 데이터
@@ -216,6 +238,17 @@ class ESGDataProcessor:
             'renewable_ratio': latest_data['renewable_ratio'] if latest_data['renewable_ratio'] else 0
         }
         
+        # 트렌드 분석 추가 (generator.py에서 기대하는 형태)
+        trends = []
+        for _, row in env_df.iterrows():
+            trends.append({
+                'year': int(row['year']),
+                'energy_use': float(row['energy_use']) if row['energy_use'] else 0,
+                'green_use': float(row['green_use']) if row['green_use'] else 0
+            })
+        
+        metrics['trends'] = trends
+        
         return metrics
 
     def calculate_governance_metrics(self, company_info: Dict[str, Any], emp_df: pd.DataFrame) -> Dict[str, Any]:
@@ -229,7 +262,31 @@ class ESGDataProcessor:
             'compliance_policy': company_info.get('cmp_comp_yn') == 'Y'
         }
         
+        # 이사회 구성 (generator.py가 기대하는 형태)
+        board_df = emp_df[emp_df['emp_board_yn'] == 'Y'] if not emp_df.empty else pd.DataFrame()
+        
+        metrics['board'] = {
+            'inside': len(board_df),  # 실제로는 사내/사외 구분 필요
+            'outside': company_info.get('cmp_extemp', 0),
+            'female': len(board_df[board_df['emp_gender'] == '2']) if not board_df.empty else 0,
+            'independent': company_info.get('cmp_extemp', 0)
+        }
+        
         return metrics
+
+
+    # def calculate_governance_metrics(self, company_info: Dict[str, Any], emp_df: pd.DataFrame) -> Dict[str, Any]:
+    #     """지배구조(Governance) 지표 계산"""
+    #     metrics = {}
+        
+    #     # 회사 기본 지배구조 정보
+    #     metrics['basic_governance'] = {
+    #         'external_directors': company_info.get('cmp_extemp', 0),
+    #         'ethics_policy': company_info.get('cmp_ethics_yn') == 'Y',
+    #         'compliance_policy': company_info.get('cmp_comp_yn') == 'Y'
+    #     }
+        
+    #     return metrics
 
     def generate_comprehensive_report(self, cmp_num: str, cmp_branch: Optional[str] = None) -> Dict[str, Any]:
         company_info = self.get_company_info(cmp_num, cmp_branch=cmp_branch)
