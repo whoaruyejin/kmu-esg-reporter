@@ -4,6 +4,7 @@ from nicegui import ui, app
 from typing import Dict, Any, Optional
 import asyncio
 import logging
+import os
 from pathlib import Path
 
 from config.settings import settings
@@ -260,25 +261,44 @@ class ESGReporterApp:
 
 def create_app() -> None:
     """Create and configure the NiceGUI application."""
-    # Configure logging
+    # # Configure logging
+    # logging.basicConfig(
+    #     level=logging.DEBUG if settings.app.DEBUG else logging.INFO,
+    #     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    # )
+    
+    # # Create app instance
+    # esg_app = ESGReporterApp()
+    # esg_app.setup_app()
+    
+    # # 앱 시작 시 회사 목록 로드
+    # # asyncio.create_task(esg_app.refresh_company_list())
+    
+    # # Start the application
+    # ui.run(
+    #     host=settings.app.HOST,
+    #     port=settings.app.PORT,
+    #     title=settings.app.APP_NAME,
+    #     favicon='🌱',
+    #     show=settings.app.DEBUG,
+    #     reload=settings.app.DEBUG
+    # )
     logging.basicConfig(
         level=logging.DEBUG if settings.app.DEBUG else logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
-    
-    # Create app instance
+
     esg_app = ESGReporterApp()
     esg_app.setup_app()
-    
-    # 앱 시작 시 회사 목록 로드
-    # asyncio.create_task(esg_app.refresh_company_list())
-    
-    # Start the application
+
+    # Render 환경에서는 PORT 환경변수를 우선 사용
+    port = int(os.environ.get("PORT", settings.app.PORT or 8080))
+
     ui.run(
-        host=settings.app.HOST,
-        port=settings.app.PORT,
+        host=settings.app.HOST,  # 기본 0.0.0.0
+        port=port,
         title=settings.app.APP_NAME,
-        favicon='🌱',
+        favicon="🌱",
         show=settings.app.DEBUG,
-        reload=settings.app.DEBUG
+        reload=settings.app.DEBUG,
     )
